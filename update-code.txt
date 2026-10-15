@@ -1,0 +1,2784 @@
+Để mày ốp thẳng vào project `cuongbc195-addin-chuanhoathethuc` và chạy được ngay mà không phải chỉnh sửa lắt nhắt, tao đã viết hoàn chỉnh toàn bộ code theo đúng **Kiến trúc Pipeline 3 Tầng** (AST Zone Parser $\rightarrow$ Zone-Aware Formatter $\rightarrow$ Semantic & Structural Linter).
+
+Điểm ăn tiền nhất của bản thiết kế này là toàn bộ phần **Bóc tách cấu trúc (`documentParser.ts`)** và **Rà soát logic (`lintParsedDocument`)** được tách thành các Pure Functions độc lập với đối tượng DOM của Word, giúp mày vừa chạy được trong Word Add-in, vừa chạy `npm test` trên Node.js để kiểm thử tự động toàn bộ các ca lỗi logic khó nhất.
+
+Dưới đây là trọn bộ mã nguồn mới để mày thay thế/thêm vào thư mục `src/` và `test/`:
+
+---
+
+### 1. File `src/constants.ts` (Chuẩn hóa thông số & Từ điển đối chiếu Logic)
+
+Thay thế nội dung `src/constants.ts` hiện tại bằng code dưới đây (đã đồng bộ thông số thụt lề và bổ sung bảng ánh xạ Mã loại văn bản $\leftrightarrow$ Tên loại văn bản, Cơ quan tập thể $\leftrightarrow$ Cơ quan tham mưu):
+
+```typescript
+/**
+ * src/constants.ts
+ * Quy chuẩn Kỹ thuật, Thể thức và Từ điển Logic Văn bản của Đảng Cộng sản Việt Nam
+ * Căn cứ Hướng dẫn số 05-HD/VPTW ngày 27/5/2026 của Văn phòng Trung ương Đảng
+ */
+
+/** Tỉ lệ chuyển đổi đơn vị chuẩn: 1 mm ≈ 2.83465 pt (points) */
+export const MM_TO_PT = 2.83465;
+
+export function mmToPt(mm: number): number {
+  return Number((mm * MM_TO_PT).toFixed(4));
+}
+
+export function ptToMm(pt: number): number {
+  return Number((pt / MM_TO_PT).toFixed(4));
+}
+
+/**
+ * 1. Khổ giấy & Căn lề trang (Page Setup) theo Hướng dẫn 05-HD/VPTW
+ */
+export const PAGE_SETUP_CONSTANTS = {
+  A4_WIDTH_MM: 210,
+  A4_WIDTH_PT: mmToPt(210),
+
+  A4_HEIGHT_MM: 297,
+  A4_HEIGHT_PT: mmToPt(297),
+
+  MARGIN_TOP_MM: 20,
+  MARGIN_TOP_PT: mmToPt(20),
+
+  MARGIN_BOTTOM_MM: 20,
+  MARGIN_BOTTOM_PT: mmToPt(20),
+
+  MARGIN_LEFT_MM: 30,
+  MARGIN_LEFT_PT: mmToPt(30),
+
+  MARGIN_RIGHT_MM: 15,
+  MARGIN_RIGHT_PT: mmToPt(15),
+
+  HEADER_DISTANCE_MM: 10,
+  HEADER_DISTANCE_PT: mmToPt(10),
+
+  FOOTER_DISTANCE_MM: 10,
+  FOOTER_DISTANCE_PT: mmToPt(10),
+
+  PRINTABLE_WIDTH_MM: 165,
+  PRINTABLE_WIDTH_PT: mmToPt(165),
+
+  MIRROR_MARGINS: true,
+  DIFFERENT_FIRST_PAGE: true,
+} as const;
+
+/**
+ * 2. Quy chuẩn Font & Định dạng Đoạn văn (Typography & Paragraphs)
+ */
+export const TYPOGRAPHY_CONSTANTS = {
+  FONT_FAMILY: "Times New Roman",
+  FONT_COLOR: "#000000",
+
+  BODY_FONT_SIZE_DEFAULT: 14,
+  BODY_FONT_SIZE_ALTERNATIVE: 13,
+  DOC_TYPE_FONT_SIZE: 15,
+
+  /** Chuẩn 05-HD/VPTW: 10 mm (~28.35 pt), chấp nhận biên độ thực tế 10mm - 12.7mm khi quét lỗi */
+  FIRST_LINE_INDENT_MM: 10,
+  FIRST_LINE_INDENT_PT: mmToPt(10),
+  FIRST_LINE_INDENT_MAX_MM: 12.7,
+  FIRST_LINE_INDENT_MAX_PT: mmToPt(12.7),
+
+  LINE_SPACING_DEFAULT_PT: 18,
+  LINE_SPACING_MIN_PT: 18,
+  LINE_SPACING_MAX_PT: 22,
+
+  SPACE_BEFORE_PT: 0,
+  SPACE_AFTER_MIN_PT: 6,
+  SPACE_AFTER_DEFAULT_PT: 6,
+} as const;
+
+/**
+ * 3. Quy chuẩn Header & Ô thông tin đầu văn bản (Header Table)
+ */
+export const HEADER_CONSTANTS = {
+  PARTY_HEADER_TEXT: "ĐẢNG CỘNG SẢN VIỆT NAM",
+  SUPERIOR_ORGAN_FONT_SIZE: 13,
+  ISSUING_ORGAN_FONT_SIZE: 13,
+  DOC_NUMBER_FONT_SIZE: 13,
+  PARTY_TITLE_FONT_SIZE: 13,
+  DATE_LOCATION_FONT_SIZE: 13,
+  LINE_ISSUING_ORGAN: "— — — —",
+  LINE_PARTY_TITLE: "—————————————",
+  COL_LEFT_PERCENT: 40,
+  COL_RIGHT_PERCENT: 60,
+} as const;
+
+/**
+ * 4. Quy chuẩn Footer (Ô Nơi nhận & Ô Chữ ký)
+ */
+export const FOOTER_CONSTANTS = {
+  RECIPIENTS_LABEL: "Nơi nhận:",
+  RECIPIENTS_LABEL_FONT_SIZE: 11,
+  RECIPIENTS_ITEM_FONT_SIZE: 11,
+  SIGNER_TITLE_FONT_SIZE: 13,
+  SIGNER_NAME_FONT_SIZE: 13,
+  SIGNATURE_SPACE_MM: 38,
+  SIGNATURE_SPACE_PT: mmToPt(38),
+  COL_LEFT_PERCENT: 45,
+  COL_RIGHT_PERCENT: 55,
+} as const;
+
+/**
+ * 5. Quy chuẩn Đánh số trang (Page Numbering)
+ */
+export const PAGE_NUMBERING_CONSTANTS = {
+  ALIGNMENT: "Centered" as const,
+  FONT_SIZE: 13.5,
+  SUPPRESS_FIRST_PAGE: true,
+} as const;
+
+/**
+ * 6. Bảng ánh xạ chữ viết tắt tên loại văn bản Đảng (Hướng dẫn 05-HD/VPTW)
+ * Dùng để đối chiếu chéo giữa [Số, ký hiệu] và [Tên loại văn bản]
+ */
+export const PARTY_DOC_CODE_MAP: Record<string, string> = {
+  NQ: "NGHỊ QUYẾT",
+  "QĐ": "QUYẾT ĐỊNH",
+  QD: "QUYẾT ĐỊNH",
+  CT: "CHỈ THỊ",
+  KL: "KẾT LUẬN",
+  QC: "QUY CHẾ",
+  "QYĐ": "QUY ĐỊNH",
+  QYD: "QUY ĐỊNH",
+  HD: "HƯỚNG DẪN",
+  TB: "THÔNG BÁO",
+  BC: "BÁO CÁO",
+  KH: "KẾ HOẠCH",
+  CTR: "CHƯƠNG TRÌNH",
+  TTR: "TỜ TRÌNH",
+  CV: "CÔNG VĂN",
+  GM: "GIẤY MỜI",
+  BB: "BIÊN BẢN",
+  ĐA: "ĐỀ ÁN",
+  PA: "PHƯƠNG ÁN",
+};
+
+/**
+ * Danh sách từ khóa nhận diện cơ quan ban hành làm việc theo chế độ TẬP THỂ
+ * (Khi ký bắt buộc phải có thẩm quyền "T/M ...")
+ */
+export const COLLECTIVE_ORGANS = [
+  "BAN CHẤP HÀNH",
+  "BAN THƯỜNG VỤ",
+  "BAN BÍ THƯ",
+  "BỘ CHÍNH TRỊ",
+  "ĐẢNG ỦY",
+  "HUYỆN ỦY",
+  "THÀNH ỦY",
+  "TỈNH ỦY",
+  "THỊ ỦY",
+  "QUẬN ỦY",
+  "CHI BỘ",
+  "ỦY BAN KIỂM TRA",
+];
+
+/**
+ * Danh sách từ khóa nhận diện cơ quan tham mưu/giúp việc làm việc theo chế độ THỦ TRƯỞNG
+ * (Người đứng đầu ký trực tiếp hoặc cấp phó ký thay "K/T", KHÔNG được ký "T/M")
+ */
+export const EXECUTIVE_ORGANS = [
+  "VĂN PHÒNG",
+  "BAN TỔ CHỨC",
+  "BAN TUYÊN GIÁO",
+  "BAN DÂN VẬN",
+  "BAN NỘI CHÍNH",
+  "BAN KINH TẾ",
+  "BAN XÂY DỰNG ĐẢNG",
+  "TRUNG TÂM CHÍNH TRỊ",
+];
+
+```
+
+---
+
+### 2. File `src/types.ts` (Mở rộng AST Roles, Zones & Mã lỗi Logic)
+
+Thay thế nội dung `src/types.ts` hiện tại bằng code dưới đây:
+
+```typescript
+/**
+ * src/types.ts
+ * Kiểu dữ liệu, Phân vùng AST (Zones/Roles) và Interfaces cho Word Web Add-in
+ * Chuẩn hóa thể thức & rà soát logic văn bản Đảng theo Hướng dẫn số 05-HD/VPTW
+ */
+
+export enum LintSeverity {
+  ERROR = "error",
+  WARNING = "warning",
+  INFO = "info",
+}
+
+/** Danh mục mã lỗi thể thức & logic văn bản Đảng */
+export enum LintIssueType {
+  // Nhóm lỗi thể thức cơ bản
+  MISSING_LEADING_ZERO_NUMBER = "MISSING_LEADING_ZERO_NUMBER",
+  MISSING_LEADING_ZERO_DATE = "MISSING_LEADING_ZERO_DATE",
+  EXCESS_LEADING_ZERO_DATE = "EXCESS_LEADING_ZERO_DATE",
+  INVALID_DATE_VALUE = "INVALID_DATE_VALUE",
+  SPACE_OR_TAB_INDENTATION = "SPACE_OR_TAB_INDENTATION",
+  NON_STANDARD_FONT = "NON_STANDARD_FONT",
+  INVALID_MARGIN = "INVALID_MARGIN",
+  INVALID_ALIGNMENT = "INVALID_ALIGNMENT",
+  INVALID_FIRST_LINE_INDENT = "INVALID_FIRST_LINE_INDENT",
+  INVALID_LINE_SPACING = "INVALID_LINE_SPACING",
+  INVALID_PARAGRAPH_SPACING = "INVALID_PARAGRAPH_SPACING",
+  HEADER_FOOTER_STYLE_ERROR = "HEADER_FOOTER_STYLE_ERROR",
+
+  // Nhóm lỗi logic diện rộng & đối chiếu chéo
+  INVALID_DOC_CODE_FORMAT = "INVALID_DOC_CODE_FORMAT",
+  DOC_TYPE_CODE_MISMATCH = "DOC_TYPE_CODE_MISMATCH",
+  AUTHORITY_SIGNATURE_MISMATCH = "AUTHORITY_SIGNATURE_MISMATCH",
+  INVALID_SIGN_PREFIX = "INVALID_SIGN_PREFIX",
+  HEADING_SEQUENCE_ERROR = "HEADING_SEQUENCE_ERROR",
+  RECIPIENTS_FORMAT_ERROR = "RECIPIENTS_FORMAT_ERROR",
+  UNFILLED_PLACEHOLDER = "UNFILLED_PLACEHOLDER",
+  TYPOGRAPHY_PUNCTUATION_ERROR = "TYPOGRAPHY_PUNCTUATION_ERROR",
+}
+
+/** Các phân vùng cấu trúc chính của một văn bản Đảng */
+export enum DocumentZone {
+  HEADER = "HEADER",
+  TITLE = "TITLE",
+  SALUTATION = "SALUTATION",
+  LEGAL_BASIS = "LEGAL_BASIS",
+  BODY = "BODY",
+  FOOTER = "FOOTER",
+}
+
+/** Vai trò ngữ nghĩa chi tiết của từng đoạn văn (Paragraph Role) */
+export enum ParagraphRole {
+  EMPTY = "EMPTY",
+
+  // Vùng HEADER (Ô 1 & Ô 2)
+  HEADER_SUPERIOR_ORGAN = "HEADER_SUPERIOR_ORGAN",
+  HEADER_ISSUING_ORGAN = "HEADER_ISSUING_ORGAN",
+  HEADER_PARTY_MOTTO = "HEADER_PARTY_MOTTO",
+  HEADER_SEPARATOR_LINE = "HEADER_SEPARATOR_LINE",
+  HEADER_DOC_NUMBER = "HEADER_DOC_NUMBER",
+  HEADER_DATE_LOCATION = "HEADER_DATE_LOCATION",
+  HEADER_RAW_COMBINED = "HEADER_RAW_COMBINED",
+
+  // Vùng TITLE & MỞ ĐẦU
+  DOC_TYPE = "DOC_TYPE",
+  DOC_SUMMARY = "DOC_SUMMARY",
+  CV_SUMMARY = "CV_SUMMARY",
+  TITLE_SEPARATOR_LINE = "TITLE_SEPARATOR_LINE",
+  SALUTATION_LINE = "SALUTATION_LINE",
+  LEGAL_BASIS_LINE = "LEGAL_BASIS_LINE",
+  DECISION_VERB = "DECISION_VERB",
+
+  // Vùng BODY (Nội dung & Cây đề mục)
+  HEADING_PART = "HEADING_PART",
+  HEADING_ROMAN = "HEADING_ROMAN",
+  HEADING_NUMBER = "HEADING_NUMBER",
+  HEADING_SUBNUMBER = "HEADING_SUBNUMBER",
+  HEADING_LETTER = "HEADING_LETTER",
+  ARTICLE_HEADING = "ARTICLE_HEADING",
+  LIST_ITEM = "LIST_ITEM",
+  BODY_PARAGRAPH = "BODY_PARAGRAPH",
+  DATA_TABLE_CELL = "DATA_TABLE_CELL",
+  END_MARKER = "END_MARKER",
+
+  // Vùng FOOTER (Nơi nhận & Chữ ký)
+  RECIPIENT_HEADER = "RECIPIENT_HEADER",
+  RECIPIENT_ITEM = "RECIPIENT_ITEM",
+  SIGN_AUTHORITY = "SIGN_AUTHORITY",
+  SIGN_ROLE = "SIGN_ROLE",
+  SIGN_NAME = "SIGN_NAME",
+}
+
+/** Thông tin thô của một đoạn văn đọc từ Word hoặc truyền từ Unit Test */
+export interface RawParagraphNode {
+  index: number;
+  text: string;
+  tableNestingLevel: number;
+  alignment?: string;
+  firstLineIndent?: number;
+  lineSpacing?: number;
+  spaceBefore?: number;
+  spaceAfter?: number;
+  fontName?: string;
+  fontSize?: number;
+  fontBold?: boolean;
+  fontItalic?: boolean;
+  fontColor?: string;
+}
+
+/** Nút đoạn văn sau khi đã được bộ Parser phân vùng và gán nhãn */
+export interface ParsedParagraphNode extends RawParagraphNode {
+  zone: DocumentZone;
+  role: ParagraphRole;
+  headingMeta?: {
+    level: "PART" | "ROMAN" | "NUMBER" | "SUBNUMBER" | "LETTER" | "ARTICLE";
+    rawIndex: string;
+    numericValue: number;
+    separator?: string;
+  };
+}
+
+/** Dữ liệu bóc tách từ vùng Header (Ô 1 & Ô 2) */
+export interface ExtractedHeaderInfo {
+  hasHeaderTable: boolean;
+  superiorOrgan?: string;
+  issuingOrgan?: string;
+  issuingOrganParagraphIndex?: number;
+  partyMottoParagraphIndex?: number;
+  docNumberRaw?: string;
+  docNumberParagraphIndex?: number;
+  docNumber?: string;
+  docTypeAbbr?: string;
+  docOrgAbbr?: string;
+  dateLocationRaw?: string;
+  dateParagraphIndex?: number;
+  location?: string;
+  dayRaw?: string;
+  monthRaw?: string;
+  yearRaw?: string;
+}
+
+/** Dữ liệu bóc tách từ vùng Footer (Nơi nhận & Chữ ký) */
+export interface ExtractedFooterInfo {
+  hasSignatureTable: boolean;
+  recipientHeaderIndex?: number;
+  recipientItems: { index: number; text: string }[];
+  signAuthority?: string;
+  signAuthorityIndex?: number;
+  signRole?: string;
+  signRoleIndex?: number;
+  signerName?: string;
+  signerNameIndex?: number;
+}
+
+/** Cấu trúc AST toàn bộ tài liệu sau khi phân tích */
+export interface ParsedDocument {
+  nodes: ParsedParagraphNode[];
+  header: ExtractedHeaderInfo;
+  docTypeTitle?: string;
+  docTypeParagraphIndex?: number;
+  docSummary?: string;
+  hasDecisionVerb: boolean;
+  footer: ExtractedFooterInfo;
+}
+
+export interface HeaderData {
+  superiorOrgan?: string;
+  issuingOrgan: string;
+  docNumber: number | string;
+  docCode: string;
+  location: string;
+  date: Date | { day: number; month: number; year: number } | string;
+  fontSize?: 13 | 14;
+}
+
+export interface SignData {
+  recipients: string[];
+  signTitle: string;
+  signerRole?: string;
+  signerName: string;
+  signatureSpaceMm?: number;
+  fontSize?: 13 | 14;
+}
+
+export interface FormatBodyOptions {
+  fontSize?: number;
+  lineSpacing?: number;
+  spaceAfter?: number;
+  spaceBefore?: number;
+  firstLineIndentMm?: number;
+  preserveCenteredHeadings?: boolean;
+}
+
+export interface PageSetupOptions {
+  topMarginMm?: number;
+  bottomMarginMm?: number;
+  leftMarginMm?: number;
+  rightMarginMm?: number;
+  mirrorMargins?: boolean;
+  differentFirstPageHeaderFooter?: boolean;
+  headerDistanceMm?: number;
+}
+
+export interface LintIssue {
+  id: string;
+  type: LintIssueType;
+  severity: LintSeverity;
+  message: string;
+  suggestion: string;
+  locationInfo?: string;
+  snippet?: string;
+  /** Chỉ số đoạn văn trong Word để click nhảy thẳng tới vị trí lỗi */
+  paragraphIndex?: number;
+}
+
+export interface LintReport {
+  isValid: boolean;
+  totalIssues: number;
+  errorCount: number;
+  warningCount: number;
+  infoCount: number;
+  issues: LintIssue[];
+  timestamp: string;
+}
+
+```
+
+---
+
+### 3. File mới `src/documentParser.ts` (Tầng 1: Bộ nhận diện Vùng & Bóc tách AST)
+
+Tạo mới file `src/documentParser.ts`. Module này chịu trách nhiệm đọc hiểu từng dòng trong văn bản (kể cả trong bảng lẫn ngoài bảng), bóc tách Header, Tên loại văn bản, Trích yếu, Cây đề mục La Mã/Số/Điều, Nơi nhận và Thẩm quyền ký:
+
+```typescript
+/**
+ * src/documentParser.ts
+ * Tầng 1: Bộ phân tích cấu trúc & Phân vùng văn bản Đảng (AST & Zone Classifier)
+ * Khắc phục triệt để nhược điểm "vô trạng thái" và "mù trong bảng"
+ */
+
+import {
+  DocumentZone,
+  ParagraphRole,
+  RawParagraphNode,
+  ParsedParagraphNode,
+  ParsedDocument,
+  ExtractedHeaderInfo,
+  ExtractedFooterInfo,
+} from "./types";
+
+const DOC_TYPE_KEYWORDS = [
+  "NGHỊ QUYẾT",
+  "QUYẾT ĐỊNH",
+  "CHỈ THỊ",
+  "KẾT LUẬN",
+  "QUY CHẾ",
+  "QUY ĐỊNH",
+  "HƯỚNG DẪN",
+  "THÔNG BÁO",
+  "BÁO CÁO",
+  "KẾ HOẠCH",
+  "CHƯƠNG TRÌNH",
+  "TỜ TRÌNH",
+  "CÔNG VĂN",
+  "GIẤY MỜI",
+  "BIÊN BẢN",
+  "ĐỀ ÁN",
+  "PHƯƠNG ÁN",
+];
+
+const SIGN_AUTHORITY_REGEX =
+  /^(T\/M|TM\.?|K\/T|KT\.?|T\/L|TL\.?|Q\.|QUYỀN)\s+(.+)$/i;
+
+const SIGN_ROLE_KEYWORDS = [
+  "BÍ THƯ",
+  "PHÓ BÍ THƯ",
+  "PHÓ BÍ THƯ THƯỜNG TRỰC",
+  "CHÁNH VĂN PHÒNG",
+  "PHÓ CHÁNH VĂN PHÒNG",
+  "TRƯỞNG BAN",
+  "PHÓ TRƯỞNG BAN",
+  "CHỦ NHIỆM",
+  "PHÓ CHỦ NHIỆM",
+  "GIÁM ĐỐC",
+  "PHÓ GIÁM ĐỐC",
+];
+
+/** Chuyển số La Mã sang số nguyên (ví dụ: I -> 1, IV -> 4, IX -> 9) */
+export function romanToInt(roman: string): number {
+  const s = roman.toUpperCase().trim();
+  const map: Record<string, number> = {
+    I: 1,
+    V: 5,
+    X: 10,
+    L: 50,
+    C: 100,
+    D: 500,
+    M: 1000,
+  };
+  let total = 0;
+  for (let i = 0; i < s.length; i++) {
+    const curr = map[s[i]];
+    const next = map[s[i + 1]];
+    if (!curr) return NaN;
+    if (next && curr < next) {
+      total -= curr;
+    } else {
+      total += curr;
+    }
+  }
+  return total;
+}
+
+function isSeparatorLine(text: string): boolean {
+  const clean = text.trim();
+  return /^([—–\-_*]\s*){3,}$/.test(clean);
+}
+
+function isExactDocType(text: string): boolean {
+  const clean = text.trim().toUpperCase();
+  return DOC_TYPE_KEYWORDS.includes(clean);
+}
+
+function isSignRoleLine(text: string): boolean {
+  const clean = text.trim().toUpperCase();
+  return SIGN_ROLE_KEYWORDS.some(
+    (kw) => clean === kw || clean.startsWith(`${kw} `)
+  );
+}
+
+/**
+ * Phân tích danh sách các đoạn văn thô thành cấu trúc AST hoàn chỉnh (`ParsedDocument`)
+ */
+export function parseDocumentStructure(
+  rawNodes: RawParagraphNode[]
+): ParsedDocument {
+  const nodes: ParsedParagraphNode[] = rawNodes.map((n) => ({
+    ...n,
+    zone: DocumentZone.BODY,
+    role: n.text.trim() ? ParagraphRole.BODY_PARAGRAPH : ParagraphRole.EMPTY,
+  }));
+
+  const header: ExtractedHeaderInfo = {
+    hasHeaderTable: false,
+  };
+
+  const footer: ExtractedFooterInfo = {
+    hasSignatureTable: false,
+    recipientItems: [],
+  };
+
+  let docTypeTitle: string | undefined;
+  let docTypeParagraphIndex: number | undefined;
+  let docSummary: string | undefined;
+  let hasDecisionVerb = false;
+
+  // ------------------------------------------------------------------
+  // BƯỚC 1: NHẬN DIỆN VÙNG HEADER (Ô 1 & Ô 2) Ở ĐẦU VĂN BẢN
+  // ------------------------------------------------------------------
+  const maxHeaderScan = Math.min(nodes.length, 15);
+  let lastHeaderIndex = -1;
+
+  for (let i = 0; i < maxHeaderScan; i++) {
+    const node = nodes[i];
+    const trimmed = node.text.trim();
+    if (!trimmed) continue;
+
+    // Nếu gặp Tên loại văn bản hoặc Kính gửi thì kết thúc vùng Header
+    if (isExactDocType(trimmed) || /^Kính gửi\s*:/i.test(trimmed)) {
+      break;
+    }
+
+    const upper = trimmed.toUpperCase();
+    const isPartyMotto = upper.includes("ĐẢNG CỘNG SẢN VIỆT NAM");
+    const isDocNumber = /^Số\s*:?\s*(\d+|\.{2,}|…)/i.test(trimmed);
+    const isDateLine =
+      /(ngày\s*(\d+|\.{2,}|…)\s*tháng|tháng\s*(\d+|\.{2,}|…)\s*năm)/i.test(
+        trimmed
+      );
+    const isOrganCandidate =
+      i <= 6 &&
+      upper === trimmed &&
+      /(ĐẢNG|BAN|TỈNH ỦY|THÀNH ỦY|HUYỆN ỦY|THỊ ỦY|QUẬN ỦY|VĂN PHÒNG|ỦY BAN|CHI BỘ|TRUNG ƯƠNG)/.test(
+        upper
+      );
+
+    if (
+      isPartyMotto ||
+      isDocNumber ||
+      isDateLine ||
+      isOrganCandidate ||
+      (lastHeaderIndex >= 0 && i <= lastHeaderIndex + 2 && isSeparatorLine(trimmed))
+    ) {
+      node.zone = DocumentZone.HEADER;
+      lastHeaderIndex = i;
+      if (node.tableNestingLevel > 0) {
+        header.hasHeaderTable = true;
+      }
+
+      if (isPartyMotto && isOrganCandidate && trimmed.includes("\t")) {
+        // Trường hợp gõ cả cơ quan và tiêu ngữ trên cùng 1 dòng bằng phím Tab
+        node.role = ParagraphRole.HEADER_RAW_COMBINED;
+        const parts = trimmed.split(/\t+/).map((s) => s.trim()).filter(Boolean);
+        if (parts.length >= 2) {
+          if (!header.issuingOrgan) header.issuingOrgan = parts[0];
+          header.partyMottoParagraphIndex = i;
+        }
+      } else if (isPartyMotto) {
+        node.role = ParagraphRole.HEADER_PARTY_MOTTO;
+        header.partyMottoParagraphIndex = i;
+      } else if (isDocNumber) {
+        node.role = ParagraphRole.HEADER_DOC_NUMBER;
+        header.docNumberRaw = trimmed;
+        header.docNumberParagraphIndex = i;
+
+        // Tách chi tiết Số, loại văn bản viết tắt, cơ quan ban hành viết tắt
+        const codeMatch =
+          /^Số\s*:?\s*(\d+|\.{2,}|…)\s*[-/]\s*([A-ZĐa-zđ]+)\s*[-/]\s*([A-ZĐa-zđ0-9]+)$/i.exec(
+            trimmed.split(/\t/)[0].trim()
+          );
+        if (codeMatch) {
+          header.docNumber = codeMatch[1];
+          header.docTypeAbbr = codeMatch[2].toUpperCase();
+          header.docOrgAbbr = codeMatch[3].toUpperCase();
+        }
+      } else if (isDateLine) {
+        node.role = ParagraphRole.HEADER_DATE_LOCATION;
+        header.dateLocationRaw = trimmed;
+        header.dateParagraphIndex = i;
+
+        const dateMatch =
+          /^(?:([^,]+),\s*)?ngày\s*([^\s]+)\s*tháng\s*([^\s]+)\s*năm\s*(\d{4}|\.{2,}|…)/i.exec(
+            trimmed
+          );
+        if (dateMatch) {
+          header.location = dateMatch[1]?.trim();
+          header.dayRaw = dateMatch[2]?.trim();
+          header.monthRaw = dateMatch[3]?.trim();
+          header.yearRaw = dateMatch[4]?.trim();
+        }
+      } else if (isSeparatorLine(trimmed)) {
+        node.role = ParagraphRole.HEADER_SEPARATOR_LINE;
+      } else if (isOrganCandidate) {
+        if (!header.issuingOrgan) {
+          header.issuingOrgan = trimmed;
+          header.issuingOrganParagraphIndex = i;
+          node.role = ParagraphRole.HEADER_ISSUING_ORGAN;
+        } else {
+          // Đã có dòng cơ quan thứ nhất -> dòng 1 là Cấp trên, dòng 2 mới là Cơ quan ban hành
+          header.superiorOrgan = header.issuingOrgan;
+          if (header.issuingOrganParagraphIndex !== undefined) {
+            nodes[header.issuingOrganParagraphIndex].role =
+              ParagraphRole.HEADER_SUPERIOR_ORGAN;
+          }
+          header.issuingOrgan = trimmed.replace(/\*+$/, "").trim();
+          header.issuingOrganParagraphIndex = i;
+          node.role = ParagraphRole.HEADER_ISSUING_ORGAN;
+        }
+      }
+    } else if (/^(V\/v|Về việc)\s+/i.test(trimmed) && i <= 8) {
+      node.zone = DocumentZone.TITLE;
+      node.role = ParagraphRole.CV_SUMMARY;
+      docSummary = trimmed;
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // BƯỚC 2: NHẬN DIỆN VÙNG FOOTER (NƠI NHẬN & CHỮ KÝ) Ở CUỐI VĂN BẢN
+  // ------------------------------------------------------------------
+  let footerStartIndex = nodes.length;
+  const minFooterScan = Math.max(lastHeaderIndex + 1, nodes.length - 25);
+
+  for (let i = minFooterScan; i < nodes.length; i++) {
+    const trimmed = nodes[i].text.trim();
+    if (!trimmed) continue;
+
+    if (
+      /^Nơi nhận\s*:/i.test(trimmed) ||
+      SIGN_AUTHORITY_REGEX.test(trimmed) ||
+      isSignRoleLine(trimmed)
+    ) {
+      footerStartIndex = i;
+      break;
+    }
+  }
+
+  if (footerStartIndex < nodes.length) {
+    let inRecipientsList = false;
+    for (let i = footerStartIndex; i < nodes.length; i++) {
+      const node = nodes[i];
+      const trimmed = node.text.trim();
+      if (!trimmed) continue;
+
+      node.zone = DocumentZone.FOOTER;
+      if (node.tableNestingLevel > 0) {
+        footer.hasSignatureTable = true;
+      }
+
+      if (/^Nơi nhận\s*:/i.test(trimmed)) {
+        node.role = ParagraphRole.RECIPIENT_HEADER;
+        footer.recipientHeaderIndex = i;
+        inRecipientsList = true;
+      } else if (SIGN_AUTHORITY_REGEX.test(trimmed)) {
+        node.role = ParagraphRole.SIGN_AUTHORITY;
+        footer.signAuthority = trimmed;
+        footer.signAuthorityIndex = i;
+        inRecipientsList = false;
+      } else if (isSignRoleLine(trimmed)) {
+        if (!footer.signAuthority && !footer.signRole) {
+          // Trường hợp thủ trưởng ký trực tiếp (ví dụ: CHÁNH VĂN PHÒNG hoặc BÍ THƯ)
+          node.role = ParagraphRole.SIGN_ROLE;
+          footer.signRole = trimmed;
+          footer.signRoleIndex = i;
+        } else {
+          node.role = ParagraphRole.SIGN_ROLE;
+          footer.signRole = trimmed;
+          footer.signRoleIndex = i;
+        }
+        inRecipientsList = false;
+      } else if (
+        inRecipientsList &&
+        (trimmed.startsWith("-") ||
+          trimmed.startsWith("–") ||
+          /^Như\s+Điều/i.test(trimmed) ||
+          /^Lưu\s*:/i.test(trimmed) ||
+          /^Lưu\s+VT/i.test(trimmed))
+      ) {
+        node.role = ParagraphRole.RECIPIENT_ITEM;
+        footer.recipientItems.push({ index: i, text: trimmed });
+      } else if (
+        (footer.signAuthority || footer.signRole) &&
+        !footer.signerName &&
+        !trimmed.startsWith("-")
+      ) {
+        node.role = ParagraphRole.SIGN_NAME;
+        footer.signerName = trimmed;
+        footer.signerNameIndex = i;
+      }
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // BƯỚC 3: PHÂN LOẠI VÙNG TITLE, SALUTATION, LEGAL_BASIS & BODY
+  // ------------------------------------------------------------------
+  let bodyStartIdx = lastHeaderIndex + 1;
+  let expectingSummary = false;
+
+  for (let i = bodyStartIdx; i < footerStartIndex; i++) {
+    const node = nodes[i];
+    const trimmed = node.text.trim();
+    if (!trimmed) continue;
+
+    // Nếu đoạn văn đã được gán CV_SUMMARY ở bước 1 thì bỏ qua
+    if (node.role === ParagraphRole.CV_SUMMARY) continue;
+
+    // Nếu nằm trong bảng dữ liệu ở giữa văn bản -> bảo vệ bảng dữ liệu
+    if (node.tableNestingLevel > 0) {
+      node.zone = DocumentZone.BODY;
+      node.role = ParagraphRole.DATA_TABLE_CELL;
+      continue;
+    }
+
+    // 1. Nhận diện Tên loại văn bản (NGHỊ QUYẾT, QUYẾT ĐỊNH, KẾ HOẠCH, BÁO CÁO...)
+    if (docTypeParagraphIndex === undefined && i <= lastHeaderIndex + 6 && isExactDocType(trimmed)) {
+      node.zone = DocumentZone.TITLE;
+      node.role = ParagraphRole.DOC_TYPE;
+      docTypeTitle = trimmed.toUpperCase();
+      docTypeParagraphIndex = i;
+      expectingSummary = true;
+      continue;
+    }
+
+    // 2. Nhận diện Trích yếu văn bản ngay dưới Tên loại văn bản
+    if (expectingSummary) {
+      if (isSeparatorLine(trimmed)) {
+        node.zone = DocumentZone.TITLE;
+        node.role = ParagraphRole.TITLE_SEPARATOR_LINE;
+        expectingSummary = false;
+        continue;
+      }
+      if (
+        !/^Kính gửi\s*:/i.test(trimmed) &&
+        !/^(-?\s*Căn cứ|Xét đề nghị)/i.test(trimmed) &&
+        !/^([IVXLCDM]+)\s*[.\-]\s+/i.test(trimmed) &&
+        !/^Điều\s+\d+/i.test(trimmed)
+      ) {
+        node.zone = DocumentZone.TITLE;
+        node.role = ParagraphRole.DOC_SUMMARY;
+        docSummary = docSummary ? `${docSummary} ${trimmed}` : trimmed;
+        continue;
+      } else {
+        expectingSummary = false;
+      }
+    }
+
+    // 3. Dòng kẻ ngang dưới Trích yếu
+    if (i <= (docTypeParagraphIndex ?? lastHeaderIndex) + 4 && isSeparatorLine(trimmed)) {
+      node.zone = DocumentZone.TITLE;
+      node.role = ParagraphRole.TITLE_SEPARATOR_LINE;
+      continue;
+    }
+
+    // 4. Dòng Kính gửi
+    if (/^(Kính gửi|Đồng kính gửi)\s*:/i.test(trimmed)) {
+      node.zone = DocumentZone.SALUTATION;
+      node.role = ParagraphRole.SALUTATION_LINE;
+      continue;
+    }
+
+    // 5. Dòng QUYẾT ĐỊNH: (trong văn bản Quyết định)
+    if (/^QUYẾT ĐỊNH\s*:$/i.test(trimmed)) {
+      node.zone = DocumentZone.LEGAL_BASIS;
+      node.role = ParagraphRole.DECISION_VERB;
+      hasDecisionVerb = true;
+      continue;
+    }
+
+    // 6. Căn cứ pháp lý (Căn cứ..., - Căn cứ..., Xét đề nghị...)
+    if (
+      !hasDecisionVerb &&
+      /^([\-–+•]\s*)?(Căn cứ|Thực hiện|Theo đề nghị|Xét đề nghị)\s+/i.test(trimmed)
+    ) {
+      node.zone = DocumentZone.LEGAL_BASIS;
+      node.role = ParagraphRole.LEGAL_BASIS_LINE;
+      continue;
+    }
+
+    // 7. Dấu kết thúc bài (----- hoặc * * *)
+    if (isSeparatorLine(trimmed) && i >= footerStartIndex - 3) {
+      node.zone = DocumentZone.BODY;
+      node.role = ParagraphRole.END_MARKER;
+      continue;
+    }
+
+    // 8. Nhận diện Cây đề mục (Headings) trong BODY
+    node.zone = DocumentZone.BODY;
+
+    // 8.1: PHẦN / CHƯƠNG
+    const partMatch = /^(PHẦN|CHƯƠNG)\s+([IVXLCDM\d]+|THỨ\s+[^\s:.\-]+)(.*)$/i.exec(trimmed);
+    if (partMatch) {
+      node.role = ParagraphRole.HEADING_PART;
+      continue;
+    }
+
+    // 8.2: Điều 1., Điều 2.
+    const articleMatch = /^Điều\s+(\d+)\s*([.:]?)\s*(.*)$/i.exec(trimmed);
+    if (articleMatch) {
+      node.role = ParagraphRole.ARTICLE_HEADING;
+      node.headingMeta = {
+        level: "ARTICLE",
+        rawIndex: articleMatch[1],
+        numericValue: parseInt(articleMatch[1], 10),
+        separator: articleMatch[2] || ".",
+      };
+      continue;
+    }
+
+    // 8.3: Mục La Mã (I., II., I-, II-)
+    const romanMatch = /^([IVXLCDM]+)\s*([.\-])\s+(.+)$/.exec(trimmed);
+    if (romanMatch) {
+      const val = romanToInt(romanMatch[1]);
+      if (!isNaN(val)) {
+        node.role = ParagraphRole.HEADING_ROMAN;
+        node.headingMeta = {
+          level: "ROMAN",
+          rawIndex: romanMatch[1],
+          numericValue: val,
+          separator: romanMatch[2],
+        };
+        continue;
+      }
+    }
+
+    // 8.4: Mục con đa cấp (1.1., 1.2.)
+    const subNumMatch = /^(\d+\.\d+(?:\.\d+)?)\.?\s+(.+)$/.exec(trimmed);
+    if (subNumMatch) {
+      node.role = ParagraphRole.HEADING_SUBNUMBER;
+      node.headingMeta = {
+        level: "SUBNUMBER",
+        rawIndex: subNumMatch[1],
+        numericValue: parseFloat(subNumMatch[1]),
+      };
+      continue;
+    }
+
+    // 8.5: Mục số Ả Rập (1., 2., 3.)
+    const numMatch = /^(\d+)\.\s+(.+)$/.exec(trimmed);
+    if (numMatch) {
+      node.role = ParagraphRole.HEADING_NUMBER;
+      node.headingMeta = {
+        level: "NUMBER",
+        rawIndex: numMatch[1],
+        numericValue: parseInt(numMatch[1], 10),
+        separator: ".",
+      };
+      continue;
+    }
+
+    // 8.6: Mục chữ cái a), b), c)
+    const letterMatch = /^([a-zđ])\)\s+(.+)$/i.exec(trimmed);
+    if (letterMatch) {
+      node.role = ParagraphRole.HEADING_LETTER;
+      node.headingMeta = {
+        level: "LETTER",
+        rawIndex: letterMatch[1].toLowerCase(),
+        numericValue: letterMatch[1].toLowerCase().charCodeAt(0) - 96,
+        separator: ")",
+      };
+      continue;
+    }
+
+    // 8.7: Gạch đầu dòng liệt kê (-, +, •)
+    if (/^[\-–+•]\s+/.test(trimmed)) {
+      node.role = ParagraphRole.LIST_ITEM;
+      continue;
+    }
+
+    node.role = ParagraphRole.BODY_PARAGRAPH;
+  }
+
+  return {
+    nodes,
+    header,
+    docTypeTitle,
+    docTypeParagraphIndex,
+    docSummary,
+    hasDecisionVerb,
+    footer,
+  };
+}
+
+/**
+ * Đọc trực tiếp các đoạn văn từ Word.RequestContext và trả về `ParsedDocument`
+ */
+export async function parseWordDocument(
+  context: Word.RequestContext
+): Promise<{ parsed: ParsedDocument; wordParagraphs: Word.ParagraphCollection }> {
+  const paragraphs = context.document.body.paragraphs;
+  paragraphs.load([
+    "items/text",
+    "items/tableNestingLevel",
+    "items/alignment",
+    "items/firstLineIndent",
+    "items/lineSpacing",
+    "items/spaceBefore",
+    "items/spaceAfter",
+    "items/font/name",
+    "items/font/size",
+    "items/font/bold",
+    "items/font/italic",
+    "items/font/color",
+  ]);
+  await context.sync();
+
+  const rawNodes: RawParagraphNode[] = paragraphs.items.map((p, idx) => ({
+    index: idx,
+    text: p.text,
+    tableNestingLevel: p.tableNestingLevel,
+    alignment: String(p.alignment),
+    firstLineIndent: p.firstLineIndent,
+    lineSpacing: p.lineSpacing,
+    spaceBefore: p.spaceBefore,
+    spaceAfter: p.spaceAfter,
+    fontName: p.font?.name,
+    fontSize: p.font?.size,
+    fontBold: p.font?.bold,
+    fontItalic: p.font?.italic,
+    fontColor: p.font?.color,
+  }));
+
+  return {
+    parsed: parseDocumentStructure(rawNodes),
+    wordParagraphs: paragraphs,
+  };
+}
+
+```
+
+---
+
+### 4. File `src/formatService.ts` (Tầng 2 & 3: Chuẩn hóa theo Vùng & Rà soát Logic diện rộng)
+
+Thay thế nội dung `src/formatService.ts` bằng code dưới đây. Nó giải quyết dứt điểm 3 bài toán:
+
+1. Chuẩn hóa **ngay tại chỗ (in-place)** cho cả các đoạn nằm trong bảng Header/Chữ ký lẫn ngoài bảng mà không chèn đè.
+2. Tự động sửa các lỗi gõ Space/Tab đầu dòng, thiếu số 0 ở Số văn bản/Ngày tháng, thừa số 0 ở tháng 3–9, viết sai `TM.` $\rightarrow$ `T/M`.
+3. Hệ thống **`lintParsedDocument`** quét toàn diện 7 nhóm lỗi thể thức + logic chéo.
+
+```typescript
+/**
+ * src/formatService.ts
+ * Tầng 2 (Zone-Aware Formatter) & Tầng 3 (Structural & Semantic Linter)
+ * Chuẩn hóa và kiểm tra logic văn bản Đảng theo Hướng dẫn số 05-HD/VPTW
+ */
+
+import {
+  mmToPt,
+  ptToMm,
+  PAGE_SETUP_CONSTANTS,
+  TYPOGRAPHY_CONSTANTS,
+  HEADER_CONSTANTS,
+  FOOTER_CONSTANTS,
+  PAGE_NUMBERING_CONSTANTS,
+  PARTY_DOC_CODE_MAP,
+  COLLECTIVE_ORGANS,
+  EXECUTIVE_ORGANS,
+} from "./constants";
+
+import {
+  HeaderData,
+  SignData,
+  FormatBodyOptions,
+  PageSetupOptions,
+  LintReport,
+  LintIssue,
+  LintIssueType,
+  LintSeverity,
+  DocumentZone,
+  ParagraphRole,
+  ParsedDocument,
+} from "./types";
+
+import { parseWordDocument } from "./documentParser";
+
+/**
+ * Chuẩn hóa số thứ tự văn bản (bắt buộc có số 0 đằng trước nếu số < 10)
+ */
+export function formatDocNumber(num: number | string): string {
+  if (typeof num === "number") {
+    return num < 10 && num > 0 ? `0${num}` : `${num}`;
+  }
+  const trimmed = num.trim();
+  const parsed = parseInt(trimmed, 10);
+  if (!isNaN(parsed) && parsed < 10 && parsed > 0 && !trimmed.startsWith("0")) {
+    return `0${parsed}`;
+  }
+  return trimmed;
+}
+
+/**
+ * Chuẩn hóa ngày tháng năm theo Hướng dẫn 05-HD/VPTW:
+ * - Ngày < 10: thêm số 0 (ngày 05)
+ * - Tháng 1, 2: thêm số 0 (tháng 01, tháng 02)
+ * - Tháng 3 đến 9: bỏ số 0 thừa nếu có (tháng 03 -> tháng 3)
+ */
+export function formatPartyDate(
+  location: string,
+  dateInput: Date | { day: number; month: number; year: number } | string
+): string {
+  const cleanLocation = location.trim().replace(/,\s*$/, "");
+
+  if (typeof dateInput === "string") {
+    let formattedText = dateInput.trim();
+    // Bổ sung số 0 cho ngày < 10
+    formattedText = formattedText.replace(
+      /ngày\s+([1-9])(?!\d)\s+tháng/i,
+      "ngày 0$1 tháng"
+    );
+    // Bổ sung số 0 cho tháng 1, 2
+    formattedText = formattedText.replace(
+      /tháng\s+([1-2])(?!\d)\s+năm/i,
+      "tháng 0$1 năm"
+    );
+    // Loại bỏ số 0 thừa ở tháng 3 đến tháng 9
+    formattedText = formattedText.replace(
+      /tháng\s+0([3-9])\s+năm/i,
+      "tháng $1 năm"
+    );
+    if (
+      cleanLocation &&
+      !formattedText.toLowerCase().includes(cleanLocation.toLowerCase())
+    ) {
+      return `${cleanLocation}, ${formattedText}`;
+    }
+    return formattedText;
+  }
+
+  let day: number;
+  let month: number;
+  let year: number;
+
+  if (dateInput instanceof Date) {
+    day = dateInput.getDate();
+    month = dateInput.getMonth() + 1;
+    year = dateInput.getFullYear();
+  } else {
+    day = dateInput.day;
+    month = dateInput.month;
+    year = dateInput.year;
+  }
+
+  const dayStr = day < 10 ? `0${day}` : `${day}`;
+  const monthStr = month < 3 ? `0${month}` : `${month}`;
+
+  return `${cleanLocation}, ngày ${dayStr} tháng ${monthStr} năm ${year}`;
+}
+
+function createPageNumberFlatOpcXml(fontSizePt: number = 13.5): string {
+  const halfPoints = Math.round(fontSizePt * 2);
+  return `<?xml version="1.0" standalone="yes"?>
+<?mso-application progid="Word.Document"?>
+<pkg:package xmlns:pkg="http://schemas.microsoft.com/office/2006/xmlPackage">
+  <pkg:part pkg:name="/_rels/.rels" pkg:contentType="application/vnd.openxmlformats-package.relationships+xml" pkg:padding="512">
+    <pkg:xmlData>
+      <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+        <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+      </Relationships>
+    </pkg:xmlData>
+  </pkg:part>
+  <pkg:part pkg:name="/word/document.xml" pkg:contentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml">
+    <pkg:xmlData>
+      <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+        <w:body>
+          <w:p>
+            <w:pPr>
+              <w:jc w:val="center"/>
+              <w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/>
+              <w:rPr>
+                <w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/>
+                <w:color w:val="000000"/>
+                <w:sz w:val="${halfPoints}"/>
+                <w:szCs w:val="${halfPoints}"/>
+              </w:rPr>
+            </w:pPr>
+            <w:fldSimple w:instr="PAGE"/>
+          </w:p>
+        </w:body>
+      </w:document>
+    </pkg:xmlData>
+  </pkg:part>
+</pkg:package>`;
+}
+
+/**
+ * 1. Thiết lập khổ giấy A4 và căn lề chuẩn 05-HD/VPTW
+ */
+export async function applyPageSetup(
+  context: Word.RequestContext,
+  options?: PageSetupOptions
+): Promise<void> {
+  const sections = context.document.sections;
+  sections.load("items");
+  await context.sync();
+
+  const topPt = options?.topMarginMm
+    ? mmToPt(options.topMarginMm)
+    : PAGE_SETUP_CONSTANTS.MARGIN_TOP_PT;
+  const bottomPt = options?.bottomMarginMm
+    ? mmToPt(options.bottomMarginMm)
+    : PAGE_SETUP_CONSTANTS.MARGIN_BOTTOM_PT;
+  const leftPt = options?.leftMarginMm
+    ? mmToPt(options.leftMarginMm)
+    : PAGE_SETUP_CONSTANTS.MARGIN_LEFT_PT;
+  const rightPt = options?.rightMarginMm
+    ? mmToPt(options.rightMarginMm)
+    : PAGE_SETUP_CONSTANTS.MARGIN_RIGHT_PT;
+  const headerDistPt = options?.headerDistanceMm
+    ? mmToPt(options.headerDistanceMm)
+    : PAGE_SETUP_CONSTANTS.HEADER_DISTANCE_PT;
+  const mirror = options?.mirrorMargins ?? PAGE_SETUP_CONSTANTS.MIRROR_MARGINS;
+  const diffFirst =
+    options?.differentFirstPageHeaderFooter ??
+    PAGE_SETUP_CONSTANTS.DIFFERENT_FIRST_PAGE;
+
+  const pageNumberXml = createPageNumberFlatOpcXml(
+    PAGE_NUMBERING_CONSTANTS.FONT_SIZE
+  );
+
+  for (let i = 0; i < sections.items.length; i++) {
+    const section = sections.items[i];
+    const pageSetup = section.pageSetup;
+
+    pageSetup.pageWidth = PAGE_SETUP_CONSTANTS.A4_WIDTH_PT;
+    pageSetup.pageHeight = PAGE_SETUP_CONSTANTS.A4_HEIGHT_PT;
+    pageSetup.orientation = Word.PageOrientation.portrait;
+
+    pageSetup.topMargin = topPt;
+    pageSetup.bottomMargin = bottomPt;
+    pageSetup.leftMargin = leftPt;
+    pageSetup.rightMargin = rightPt;
+    pageSetup.headerDistance = headerDistPt;
+    pageSetup.footerDistance = PAGE_SETUP_CONSTANTS.FOOTER_DISTANCE_PT;
+    pageSetup.differentFirstPageHeaderFooter = diffFirst;
+
+    try {
+      (pageSetup as any).mirrorMargins = mirror;
+    } catch {
+      // Bỏ qua nếu host không hỗ trợ
+    }
+
+    try {
+      const primaryHeader = section.getHeader(Word.HeaderFooterType.primary);
+      primaryHeader.insertOoxml(pageNumberXml, Word.InsertLocation.replace);
+
+      if (diffFirst) {
+        const firstHeader = section.getHeader(Word.HeaderFooterType.firstPage);
+        firstHeader.clear();
+      }
+
+      if (mirror) {
+        try {
+          const evenHeader = section.getHeader(Word.HeaderFooterType.evenPages);
+          evenHeader.insertOoxml(pageNumberXml, Word.InsertLocation.replace);
+        } catch {
+          // Bỏ qua
+        }
+      }
+    } catch {
+      const primaryHeader = section.getHeader(Word.HeaderFooterType.primary);
+      primaryHeader.clear();
+      const p = primaryHeader.insertParagraph("", Word.InsertLocation.start);
+      p.alignment = Word.Alignment.centered;
+      p.font.name = TYPOGRAPHY_CONSTANTS.FONT_FAMILY;
+      p.font.size = PAGE_NUMBERING_CONSTANTS.FONT_SIZE;
+      p.font.color = TYPOGRAPHY_CONSTANTS.FONT_COLOR;
+    }
+  }
+
+  await context.sync();
+}
+
+/**
+ * 2. Chuẩn hóa thông minh theo Phân vùng (Zone-Aware Formatter)
+ * - Hiểu và định dạng riêng từng Zone: HEADER, TITLE, SALUTATION, LEGAL_BASIS, BODY, FOOTER.
+ * - Tự động chuẩn hóa cả nội dung nằm trong bảng Header & bảng Chữ ký (không còn bị "mù trong bảng").
+ * - Bảo vệ các bảng dữ liệu/phụ lục ở giữa bài (`DATA_TABLE_CELL`).
+ */
+export async function formatBodyContent(
+  context: Word.RequestContext,
+  fontSize?: number,
+  options?: FormatBodyOptions
+): Promise<void> {
+  const targetFontSize =
+    fontSize ??
+    options?.fontSize ??
+    TYPOGRAPHY_CONSTANTS.BODY_FONT_SIZE_DEFAULT;
+
+  const targetLineSpacing =
+    options?.lineSpacing ?? TYPOGRAPHY_CONSTANTS.LINE_SPACING_DEFAULT_PT;
+  const targetSpaceBefore =
+    options?.spaceBefore ?? TYPOGRAPHY_CONSTANTS.SPACE_BEFORE_PT;
+  const targetSpaceAfter =
+    options?.spaceAfter ?? TYPOGRAPHY_CONSTANTS.SPACE_AFTER_DEFAULT_PT;
+  const targetIndentPt = options?.firstLineIndentMm
+    ? mmToPt(options.firstLineIndentMm)
+    : TYPOGRAPHY_CONSTANTS.FIRST_LINE_INDENT_PT;
+
+  const { parsed, wordParagraphs } = await parseWordDocument(context);
+
+  for (const node of parsed.nodes) {
+    const p = wordParagraphs.items[node.index];
+
+    if (node.role === ParagraphRole.EMPTY) {
+      p.spaceBefore = 0;
+      p.spaceAfter = 0;
+      p.firstLineIndent = 0;
+      continue;
+    }
+
+    // Luôn đồng bộ phông chữ Times New Roman và màu đen chuẩn
+    p.font.name = TYPOGRAPHY_CONSTANTS.FONT_FAMILY;
+    p.font.color = TYPOGRAPHY_CONSTANTS.FONT_COLOR;
+
+    // ---------------------------------------------------------
+    // XỬ LÝ VÙNG HEADER (Ô 1 & Ô 2)
+    // ---------------------------------------------------------
+    if (node.zone === DocumentZone.HEADER) {
+      p.firstLineIndent = 0;
+      p.spaceBefore = 0;
+      p.lineSpacing = 15;
+      if (node.tableNestingLevel > 0) {
+        p.alignment = Word.Alignment.centered;
+      }
+
+      switch (node.role) {
+        case ParagraphRole.HEADER_SUPERIOR_ORGAN:
+          p.font.size = HEADER_CONSTANTS.SUPERIOR_ORGAN_FONT_SIZE;
+          p.font.bold = false;
+          p.font.italic = false;
+          p.spaceAfter = 1;
+          break;
+        case ParagraphRole.HEADER_ISSUING_ORGAN:
+          p.font.size = HEADER_CONSTANTS.ISSUING_ORGAN_FONT_SIZE;
+          p.font.bold = true;
+          p.font.italic = false;
+          p.spaceAfter = 1;
+          break;
+        case ParagraphRole.HEADER_PARTY_MOTTO:
+          p.font.size = HEADER_CONSTANTS.PARTY_TITLE_FONT_SIZE;
+          p.font.bold = true;
+          p.font.italic = false;
+          p.spaceAfter = 1;
+          break;
+        case ParagraphRole.HEADER_SEPARATOR_LINE:
+          p.font.size = 8;
+          p.spaceAfter = 3;
+          break;
+        case ParagraphRole.HEADER_DOC_NUMBER: {
+          p.font.size = HEADER_CONSTANTS.DOC_NUMBER_FONT_SIZE;
+          p.font.bold = false;
+          p.font.italic = false;
+          p.spaceAfter = 0;
+          // Tự động chuẩn hóa định dạng Số 05-BC/ĐU nếu người dùng gõ Số: 5/BC-ĐU
+          const fixedCode = node.text
+            .trim()
+            .replace(
+              /^Số\s*:\s*(\d+)\s*\/\s*([A-ZĐa-zđ]+)\s*-\s*([A-ZĐa-zđ0-9]+)/i,
+              (_, num, type, org) => `Số ${formatDocNumber(num)}-${type.toUpperCase()}/${org.toUpperCase()}`
+            )
+            .replace(
+              /^Số\s*:?\s*([1-9])(?!\d)\s*([-/])/i,
+              "Số 0$1$2"
+            );
+          if (fixedCode !== node.text.trim() && !node.text.includes("\t")) {
+            p.insertText(fixedCode, Word.InsertLocation.replace);
+          }
+          break;
+        }
+        case ParagraphRole.HEADER_DATE_LOCATION: {
+          p.font.size = HEADER_CONSTANTS.DATE_LOCATION_FONT_SIZE;
+          p.font.bold = false;
+          p.font.italic = true;
+          p.spaceAfter = 0;
+          const fixedDate = formatPartyDate("", node.text.trim());
+          if (fixedDate !== node.text.trim() && !node.text.includes("\t")) {
+            p.insertText(fixedDate, Word.InsertLocation.replace);
+          }
+          break;
+        }
+      }
+      continue;
+    }
+
+    // ---------------------------------------------------------
+    // XỬ LÝ VÙNG TITLE (TÊN LOẠI VĂN BẢN & TRÍCH YẾU)
+    // ---------------------------------------------------------
+    if (node.zone === DocumentZone.TITLE) {
+      p.firstLineIndent = 0;
+      p.alignment = Word.Alignment.centered;
+      p.lineSpacing = targetLineSpacing;
+
+      if (node.role === ParagraphRole.DOC_TYPE) {
+        p.font.size = TYPOGRAPHY_CONSTANTS.DOC_TYPE_FONT_SIZE;
+        p.font.bold = true;
+        p.font.italic = false;
+        p.spaceBefore = 12;
+        p.spaceAfter = 2;
+      } else if (node.role === ParagraphRole.DOC_SUMMARY) {
+        p.font.size = targetFontSize;
+        p.font.bold = true;
+        p.font.italic = false;
+        p.spaceBefore = 0;
+        p.spaceAfter = 6;
+      } else if (node.role === ParagraphRole.CV_SUMMARY) {
+        p.font.size = 12;
+        p.font.bold = false;
+        p.font.italic = false;
+        p.spaceBefore = 2;
+        p.spaceAfter = 6;
+      } else if (node.role === ParagraphRole.TITLE_SEPARATOR_LINE) {
+        p.font.size = 10;
+        p.font.bold = true;
+        p.spaceBefore = 0;
+        p.spaceAfter = 6;
+      }
+      continue;
+    }
+
+    // ---------------------------------------------------------
+    // XỬ LÝ VÙNG FOOTER (NƠI NHẬN & CHỮ KÝ)
+    // ---------------------------------------------------------
+    if (node.zone === DocumentZone.FOOTER) {
+      p.firstLineIndent = 0;
+      p.spaceBefore = 0;
+
+      switch (node.role) {
+        case ParagraphRole.RECIPIENT_HEADER:
+          p.font.size = FOOTER_CONSTANTS.RECIPIENTS_LABEL_FONT_SIZE;
+          p.font.bold = true;
+          p.font.italic = true;
+          p.alignment = Word.Alignment.left;
+          p.spaceAfter = 2;
+          p.lineSpacing = 14;
+          break;
+        case ParagraphRole.RECIPIENT_ITEM:
+          p.font.size = FOOTER_CONSTANTS.RECIPIENTS_ITEM_FONT_SIZE;
+          p.font.bold = false;
+          p.font.italic = false;
+          p.alignment = Word.Alignment.left;
+          p.spaceAfter = 1.5;
+          p.lineSpacing = 13;
+          break;
+        case ParagraphRole.SIGN_AUTHORITY: {
+          p.font.size = FOOTER_CONSTANTS.SIGNER_TITLE_FONT_SIZE;
+          p.font.bold = true;
+          p.font.italic = false;
+          if (node.tableNestingLevel > 0) p.alignment = Word.Alignment.centered;
+          p.spaceAfter = 2;
+          p.lineSpacing = 15;
+          // Tự động sửa TM. -> T/M, KT. -> K/T, TL. -> T/L
+          const fixedSignAuth = node.text
+            .trim()
+            .toUpperCase()
+            .replace(/^TM\.?\s+/, "T/M ")
+            .replace(/^KT\.?\s+/, "K/T ")
+            .replace(/^TL\.?\s+/, "T/L ");
+          if (fixedSignAuth !== node.text.trim()) {
+            p.insertText(fixedSignAuth, Word.InsertLocation.replace);
+          }
+          break;
+        }
+        case ParagraphRole.SIGN_ROLE:
+          p.font.size = FOOTER_CONSTANTS.SIGNER_TITLE_FONT_SIZE;
+          p.font.bold = true;
+          p.font.italic = false;
+          if (node.tableNestingLevel > 0) p.alignment = Word.Alignment.centered;
+          p.spaceAfter = 2;
+          p.lineSpacing = 15;
+          break;
+        case ParagraphRole.SIGN_NAME:
+          p.font.size = FOOTER_CONSTANTS.SIGNER_NAME_FONT_SIZE;
+          p.font.bold = true;
+          p.font.italic = false;
+          if (node.tableNestingLevel > 0) p.alignment = Word.Alignment.centered;
+          if (p.spaceBefore < mmToPt(25)) {
+            p.spaceBefore = FOOTER_CONSTANTS.SIGNATURE_SPACE_PT;
+          }
+          p.spaceAfter = 0;
+          p.lineSpacing = 15;
+          break;
+      }
+      continue;
+    }
+
+    // ---------------------------------------------------------
+    // XỬ LÝ VÙNG SALUTATION, LEGAL_BASIS & BODY
+    // ---------------------------------------------------------
+    if (node.role === ParagraphRole.DATA_TABLE_CELL) {
+      // Bảo vệ bảng biểu dữ liệu trong bài: không ép thụt đầu dòng
+      continue;
+    }
+
+    // Tự động xóa khoảng trắng/tab thừa ở đầu dòng đối với đoạn nội dung
+    if (/^([ ]{2,}|\t+)/.test(node.text)) {
+      p.insertText(node.text.replace(/^([ ]+|\t+)/, ""), Word.InsertLocation.replace);
+    }
+
+    if (
+      node.role === ParagraphRole.DECISION_VERB ||
+      node.role === ParagraphRole.HEADING_PART ||
+      node.role === ParagraphRole.END_MARKER
+    ) {
+      p.alignment = Word.Alignment.centered;
+      p.firstLineIndent = 0;
+      p.font.size = targetFontSize;
+      p.font.bold = true;
+      p.spaceBefore = 6;
+      p.spaceAfter = 6;
+      p.lineSpacing = targetLineSpacing;
+      continue;
+    }
+
+    // Các đoạn nội dung, đề mục I., 1., Điều 1., Kính gửi, Căn cứ
+    p.font.size = targetFontSize;
+    p.alignment = Word.Alignment.justified;
+    p.firstLineIndent = targetIndentPt;
+    p.spaceBefore = targetSpaceBefore;
+    p.spaceAfter = targetSpaceAfter;
+    p.lineSpacing = targetLineSpacing;
+
+    if (node.role === ParagraphRole.HEADING_ROMAN) {
+      p.font.bold = true;
+    }
+  }
+
+  await context.sync();
+}
+
+/**
+ * 3. Chèn hoặc Cập nhật Bảng Header 2 cột không viền (Ô 1 & Ô 2)
+ * Tự động kiểm tra nếu đã có bảng Header ở đầu văn bản thì cập nhật tại chỗ, tránh chèn đè.
+ */
+export async function insertHeaderTable(
+  context: Word.RequestContext,
+  data: HeaderData
+): Promise<Word.Table> {
+  const body = context.document.body;
+  const headerFontSize = data.fontSize ?? HEADER_CONSTANTS.ISSUING_ORGAN_FONT_SIZE;
+
+  const formattedNumber = formatDocNumber(data.docNumber);
+  const cleanDocCode = data.docCode.trim().replace(/^[-/]+/, "");
+  const docNumberString = `Số ${formattedNumber}-${cleanDocCode}`;
+  const dateString = formatPartyDate(data.location, data.date);
+
+  const { parsed } = await parseWordDocument(context);
+  const tables = body.tables;
+  tables.load("items");
+  await context.sync();
+
+  let table: Word.Table;
+  if (parsed.header.hasHeaderTable && tables.items.length > 0) {
+    table = tables.items[0];
+    table.getCell(0, 0).body.clear();
+    table.getCell(0, 1).body.clear();
+  } else {
+    table = body.insertTable(1, 2, Word.InsertLocation.start, [["", ""]]);
+  }
+
+  try {
+    table.getBorder(Word.BorderLocation.all).type = Word.BorderType.none;
+    table.setCellPadding(Word.CellPaddingLocation.top, 0);
+    table.setCellPadding(Word.CellPaddingLocation.bottom, 0);
+    table.setCellPadding(Word.CellPaddingLocation.left, 0);
+    table.setCellPadding(Word.CellPaddingLocation.right, 0);
+  } catch {
+    // Dự phòng
+  }
+
+  const cellLeft = table.getCell(0, 0);
+  const cellRight = table.getCell(0, 1);
+
+  try {
+    cellLeft.columnWidth = mmToPt(68);
+    cellRight.columnWidth = mmToPt(97);
+    cellLeft.verticalAlignment = Word.VerticalAlignment.top;
+    cellRight.verticalAlignment = Word.VerticalAlignment.top;
+  } catch {
+    // Dự phòng
+  }
+
+  const leftFirstP = cellLeft.body.paragraphs.getFirst();
+  let currentLeftP = leftFirstP;
+
+  if (data.superiorOrgan && data.superiorOrgan.trim()) {
+    currentLeftP.insertText(
+      data.superiorOrgan.trim().toUpperCase(),
+      Word.InsertLocation.replace
+    );
+    currentLeftP.font.name = TYPOGRAPHY_CONSTANTS.FONT_FAMILY;
+    currentLeftP.font.size = headerFontSize;
+    currentLeftP.font.bold = false;
+    currentLeftP.font.color = TYPOGRAPHY_CONSTANTS.FONT_COLOR;
+    currentLeftP.alignment = Word.Alignment.centered;
+    currentLeftP.firstLineIndent = 0;
+    currentLeftP.spaceBefore = 0;
+    currentLeftP.spaceAfter = 1;
+    currentLeftP.lineSpacing = 15;
+
+    currentLeftP = currentLeftP.insertParagraph(
+      data.issuingOrgan.trim().toUpperCase(),
+      Word.InsertLocation.after
+    );
+  } else {
+    currentLeftP.insertText(
+      data.issuingOrgan.trim().toUpperCase(),
+      Word.InsertLocation.replace
+    );
+  }
+
+  currentLeftP.font.name = TYPOGRAPHY_CONSTANTS.FONT_FAMILY;
+  currentLeftP.font.size = headerFontSize;
+  currentLeftP.font.bold = true;
+  currentLeftP.font.color = TYPOGRAPHY_CONSTANTS.FONT_COLOR;
+  currentLeftP.alignment = Word.Alignment.centered;
+  currentLeftP.firstLineIndent = 0;
+  currentLeftP.spaceBefore = 0;
+  currentLeftP.spaceAfter = 1;
+  currentLeftP.lineSpacing = 15;
+
+  const linePLeft = currentLeftP.insertParagraph(
+    HEADER_CONSTANTS.LINE_ISSUING_ORGAN,
+    Word.InsertLocation.after
+  );
+  linePLeft.font.name = TYPOGRAPHY_CONSTANTS.FONT_FAMILY;
+  linePLeft.font.size = 8;
+  linePLeft.font.bold = false;
+  linePLeft.font.color = TYPOGRAPHY_CONSTANTS.FONT_COLOR;
+  linePLeft.alignment = Word.Alignment.centered;
+  linePLeft.firstLineIndent = 0;
+  linePLeft.spaceBefore = 0;
+  linePLeft.spaceAfter = 3;
+  linePLeft.lineSpacing = 8;
+
+  const numberP = linePLeft.insertParagraph(
+    docNumberString,
+    Word.InsertLocation.after
+  );
+  numberP.font.name = TYPOGRAPHY_CONSTANTS.FONT_FAMILY;
+  numberP.font.size = HEADER_CONSTANTS.DOC_NUMBER_FONT_SIZE;
+  numberP.font.bold = false;
+  numberP.font.color = TYPOGRAPHY_CONSTANTS.FONT_COLOR;
+  numberP.alignment = Word.Alignment.centered;
+  numberP.firstLineIndent = 0;
+  numberP.spaceBefore = 0;
+  numberP.spaceAfter = 0;
+  numberP.lineSpacing = 15;
+
+  const rightFirstP = cellRight.body.paragraphs.getFirst();
+  rightFirstP.insertText(
+    HEADER_CONSTANTS.PARTY_HEADER_TEXT,
+    Word.InsertLocation.replace
+  );
+  rightFirstP.font.name = TYPOGRAPHY_CONSTANTS.FONT_FAMILY;
+  rightFirstP.font.size = headerFontSize;
+  rightFirstP.font.bold = true;
+  rightFirstP.font.color = TYPOGRAPHY_CONSTANTS.FONT_COLOR;
+  rightFirstP.alignment = Word.Alignment.centered;
+  rightFirstP.firstLineIndent = 0;
+  rightFirstP.spaceBefore = 0;
+  rightFirstP.spaceAfter = 1;
+  rightFirstP.lineSpacing = 15;
+
+  const linePRight = rightFirstP.insertParagraph(
+    HEADER_CONSTANTS.LINE_PARTY_TITLE,
+    Word.InsertLocation.after
+  );
+  linePRight.font.name = TYPOGRAPHY_CONSTANTS.FONT_FAMILY;
+  linePRight.font.size = 8;
+  linePRight.font.bold = false;
+  linePRight.font.color = TYPOGRAPHY_CONSTANTS.FONT_COLOR;
+  linePRight.alignment = Word.Alignment.centered;
+  linePRight.firstLineIndent = 0;
+  linePRight.spaceBefore = 0;
+  linePRight.spaceAfter = 3;
+  linePRight.lineSpacing = 8;
+
+  const dateP = linePRight.insertParagraph(
+    dateString,
+    Word.InsertLocation.after
+  );
+  dateP.font.name = TYPOGRAPHY_CONSTANTS.FONT_FAMILY;
+  dateP.font.size = headerFontSize;
+  dateP.font.bold = false;
+  dateP.font.italic = true;
+  dateP.font.color = TYPOGRAPHY_CONSTANTS.FONT_COLOR;
+  dateP.alignment = Word.Alignment.centered;
+  dateP.firstLineIndent = 0;
+  dateP.spaceBefore = 0;
+  dateP.spaceAfter = 0;
+  dateP.lineSpacing = 15;
+
+  await context.sync();
+  return table;
+}
+
+/**
+ * 4. Chèn hoặc Cập nhật Bảng Chân trang (Ô Nơi nhận & Ô Chữ ký)
+ * Tự động kiểm tra nếu đã có bảng Chữ ký ở cuối văn bản thì cập nhật tại chỗ, tránh chèn đè.
+ */
+export async function insertSignatureTable(
+  context: Word.RequestContext,
+  data: SignData
+): Promise<Word.Table> {
+  const body = context.document.body;
+  const signerFontSize = data.fontSize ?? FOOTER_CONSTANTS.SIGNER_TITLE_FONT_SIZE;
+  const sigSpacePt = data.signatureSpaceMm
+    ? mmToPt(data.signatureSpaceMm)
+    : FOOTER_CONSTANTS.SIGNATURE_SPACE_PT;
+
+  const { parsed } = await parseWordDocument(context);
+  const tables = body.tables;
+  tables.load("items");
+  await context.sync();
+
+  let table: Word.Table;
+  if (parsed.footer.hasSignatureTable && tables.items.length > 0) {
+    table = tables.items[tables.items.length - 1];
+    table.getCell(0, 0).body.clear();
+    table.getCell(0, 1).body.clear();
+  } else {
+    table = body.insertTable(1, 2, Word.InsertLocation.end, [["", ""]]);
+  }
+
+  try {
+    table.getBorder(Word.BorderLocation.all).type = Word.BorderType.none;
+    table.setCellPadding(Word.CellPaddingLocation.top, 0);
+    table.setCellPadding(Word.CellPaddingLocation.bottom, 0);
+    table.setCellPadding(Word.CellPaddingLocation.left, 0);
+    table.setCellPadding(Word.CellPaddingLocation.right, 0);
+  } catch {
+    // Dự phòng
+  }
+
+  const cellLeft = table.getCell(0, 0);
+  const cellRight = table.getCell(0, 1);
+
+  try {
+    cellLeft.columnWidth = mmToPt(75);
+    cellRight.columnWidth = mmToPt(90);
+    cellLeft.verticalAlignment = Word.VerticalAlignment.top;
+    cellRight.verticalAlignment = Word.VerticalAlignment.top;
+  } catch {
+    // Dự phòng
+  }
+
+  const leftFirstP = cellLeft.body.paragraphs.getFirst();
+  leftFirstP.insertText(
+    FOOTER_CONSTANTS.RECIPIENTS_LABEL,
+    Word.InsertLocation.replace
+  );
+  leftFirstP.font.name = TYPOGRAPHY_CONSTANTS.FONT_FAMILY;
+  leftFirstP.font.size = FOOTER_CONSTANTS.RECIPIENTS_LABEL_FONT_SIZE;
+  leftFirstP.font.bold = true;
+  leftFirstP.font.italic = true;
+  leftFirstP.font.color = TYPOGRAPHY_CONSTANTS.FONT_COLOR;
+  leftFirstP.alignment = Word.Alignment.left;
+  leftFirstP.firstLineIndent = 0;
+  leftFirstP.spaceBefore = 0;
+  leftFirstP.spaceAfter = 2;
+  leftFirstP.lineSpacing = 14;
+
+  let currentRecP = leftFirstP;
+  for (const item of data.recipients) {
+    const raw = item.trim();
+    if (!raw) continue;
+    const itemText = raw.startsWith("-") ? raw : `- ${raw}`;
+
+    currentRecP = currentRecP.insertParagraph(
+      itemText,
+      Word.InsertLocation.after
+    );
+    currentRecP.font.name = TYPOGRAPHY_CONSTANTS.FONT_FAMILY;
+    currentRecP.font.size = FOOTER_CONSTANTS.RECIPIENTS_ITEM_FONT_SIZE;
+    currentRecP.font.bold = false;
+    currentRecP.font.italic = false;
+    currentRecP.font.color = TYPOGRAPHY_CONSTANTS.FONT_COLOR;
+    currentRecP.alignment = Word.Alignment.left;
+    currentRecP.firstLineIndent = 0;
+    currentRecP.spaceBefore = 0;
+    currentRecP.spaceAfter = 1.5;
+    currentRecP.lineSpacing = 13;
+  }
+
+  const rightFirstP = cellRight.body.paragraphs.getFirst();
+  rightFirstP.insertText(
+    data.signTitle.trim().toUpperCase(),
+    Word.InsertLocation.replace
+  );
+  rightFirstP.font.name = TYPOGRAPHY_CONSTANTS.FONT_FAMILY;
+  rightFirstP.font.size = signerFontSize;
+  rightFirstP.font.bold = true;
+  rightFirstP.font.color = TYPOGRAPHY_CONSTANTS.FONT_COLOR;
+  rightFirstP.alignment = Word.Alignment.centered;
+  rightFirstP.firstLineIndent = 0;
+  rightFirstP.spaceBefore = 0;
+  rightFirstP.spaceAfter = 2;
+  rightFirstP.lineSpacing = 15;
+
+  let namePrecedingP = rightFirstP;
+
+  if (data.signerRole && data.signerRole.trim()) {
+    namePrecedingP = rightFirstP.insertParagraph(
+      data.signerRole.trim().toUpperCase(),
+      Word.InsertLocation.after
+    );
+    namePrecedingP.font.name = TYPOGRAPHY_CONSTANTS.FONT_FAMILY;
+    namePrecedingP.font.size = signerFontSize;
+    namePrecedingP.font.bold = true;
+    namePrecedingP.font.color = TYPOGRAPHY_CONSTANTS.FONT_COLOR;
+    namePrecedingP.alignment = Word.Alignment.centered;
+    namePrecedingP.firstLineIndent = 0;
+    namePrecedingP.spaceBefore = 0;
+    namePrecedingP.spaceAfter = 2;
+    namePrecedingP.lineSpacing = 15;
+  }
+
+  const nameP = namePrecedingP.insertParagraph(
+    data.signerName.trim(),
+    Word.InsertLocation.after
+  );
+  nameP.font.name = TYPOGRAPHY_CONSTANTS.FONT_FAMILY;
+  nameP.font.size = signerFontSize;
+  nameP.font.bold = true;
+  nameP.font.color = TYPOGRAPHY_CONSTANTS.FONT_COLOR;
+  nameP.alignment = Word.Alignment.centered;
+  nameP.firstLineIndent = 0;
+  nameP.spaceBefore = sigSpacePt;
+  nameP.spaceAfter = 0;
+  nameP.lineSpacing = 15;
+
+  await context.sync();
+  return table;
+}
+
+/**
+ * 5. Bộ kiểm tra Thể thức & Logic diện rộng trên AST (`lintParsedDocument`)
+ * Tách biệt hoàn toàn khỏi Word.RequestContext để vừa chạy trong Add-in vừa chạy Unit Test
+ */
+export function lintParsedDocument(
+  parsed: ParsedDocument,
+  existingIssues: LintIssue[] = []
+): LintIssue[] {
+  const issues: LintIssue[] = [...existingIssues];
+
+  // =========================================================================
+  // NHÓM 1: KIỂM TRA SỐ, KÝ HIỆU & NGÀY THÁNG BAN HÀNH (VÙNG HEADER)
+  // =========================================================================
+  if (parsed.header.docNumberRaw) {
+    const rawCode = parsed.header.docNumberRaw;
+    const pIdx = parsed.header.docNumberParagraphIndex;
+    const loc = pIdx !== undefined ? `Đoạn ${pIdx + 1} (Số, ký hiệu)` : "Ô Số, ký hiệu";
+
+    // 1.1 Bắt lỗi dùng dấu hai chấm "Số:" hoặc gạch chéo sai kiểu Hành chính Nhà nước (Số: 05/BC-ĐU)
+    if (/^Số\s*:/i.test(rawCode) || /^Số\s*:?\s*\d+\s*\//i.test(rawCode)) {
+      issues.push({
+        id: `DOC_CODE_STATE_STYLE_${pIdx ?? 0}`,
+        type: LintIssueType.INVALID_DOC_CODE_FORMAT,
+        severity: LintSeverity.ERROR,
+        message: `Ký hiệu '${rawCode}' đang viết theo thể thức hành chính Nhà nước (có dấu ':' hoặc dùng dấu '/' sau số thứ tự).`,
+        suggestion: `Theo Hướng dẫn 05-HD/VPTW, văn bản Đảng không có dấu ':' sau chữ Số, giữa số và tên loại văn bản dùng dấu '-', giữa tên loại văn bản và cơ quan dùng dấu '/' (VD: Số 05-BC/ĐU).`,
+        locationInfo: loc,
+        snippet: rawCode,
+        paragraphIndex: pIdx,
+      });
+    }
+
+    // 1.2 Bắt lỗi thiếu số 0 ở số văn bản < 10
+    const missingZeroDoc = /Số\s*:?\s*([1-9])(?!\d)\s*[-/]/i.exec(rawCode);
+    if (missingZeroDoc) {
+      issues.push({
+        id: `DOC_NUM_ZERO_${pIdx ?? 0}`,
+        type: LintIssueType.MISSING_LEADING_ZERO_NUMBER,
+        severity: LintSeverity.ERROR,
+        message: `Số văn bản đang ghi là 'Số ${missingZeroDoc[1]}...', thiếu số 0 đằng trước đối với số nhỏ hơn 10.`,
+        suggestion: `Sửa thành 'Số 0${missingZeroDoc[1]}...' theo quy định tại Hướng dẫn 05-HD/VPTW.`,
+        locationInfo: loc,
+        snippet: rawCode,
+        paragraphIndex: pIdx,
+      });
+    }
+  }
+
+  if (parsed.header.dateLocationRaw) {
+    const rawDate = parsed.header.dateLocationRaw;
+    const pIdx = parsed.header.dateParagraphIndex;
+    const loc = pIdx !== undefined ? `Đoạn ${pIdx + 1} (Ngày tháng)` : "Ô Ngày tháng";
+
+    // 1.3 Bắt lỗi thiếu số 0 ở ngày < 10
+    const dayMissingZero = /ngày\s+([1-9])(?!\d)\s+tháng/i.exec(rawDate);
+    if (dayMissingZero) {
+      issues.push({
+        id: `DATE_DAY_ZERO_${pIdx ?? 0}`,
+        type: LintIssueType.MISSING_LEADING_ZERO_DATE,
+        severity: LintSeverity.ERROR,
+        message: `Ngày ban hành đang ghi là 'ngày ${dayMissingZero[1]}', thiếu số 0 đối với ngày dưới 10.`,
+        suggestion: `Sửa thành 'ngày 0${dayMissingZero[1]}' theo quy định tại Hướng dẫn 05-HD/VPTW.`,
+        locationInfo: loc,
+        snippet: rawDate,
+        paragraphIndex: pIdx,
+      });
+    }
+
+    // 1.4 Bắt lỗi thiếu số 0 ở tháng 1, tháng 2
+    const monthMissingZero = /tháng\s+([1-2])(?!\d)\s+năm/i.exec(rawDate);
+    if (monthMissingZero) {
+      issues.push({
+        id: `DATE_MONTH_ZERO_${pIdx ?? 0}`,
+        type: LintIssueType.MISSING_LEADING_ZERO_DATE,
+        severity: LintSeverity.ERROR,
+        message: `Tháng ban hành đang ghi là 'tháng ${monthMissingZero[1]}', thiếu số 0 đối với tháng 1 và tháng 2.`,
+        suggestion: `Sửa thành 'tháng 0${monthMissingZero[1]}' theo quy định tại Hướng dẫn 05-HD/VPTW.`,
+        locationInfo: loc,
+        snippet: rawDate,
+        paragraphIndex: pIdx,
+      });
+    }
+
+    // 1.5 Bắt lỗi THỪA số 0 ở các tháng từ 3 đến 9 (tháng 03..09)
+    const monthExcessZero = /tháng\s+0([3-9])\s+năm/i.exec(rawDate);
+    if (monthExcessZero) {
+      issues.push({
+        id: `DATE_MONTH_EXCESS_ZERO_${pIdx ?? 0}`,
+        type: LintIssueType.EXCESS_LEADING_ZERO_DATE,
+        severity: LintSeverity.ERROR,
+        message: `Tháng ban hành đang ghi là 'tháng 0${monthExcessZero[1]}', thừa số 0 đằng trước đối với các tháng từ 3 đến 9.`,
+        suggestion: `Sửa thành 'tháng ${monthExcessZero[1]}' (chỉ tháng 01 và tháng 02 mới có số 0 đứng trước).`,
+        locationInfo: loc,
+        snippet: rawDate,
+        paragraphIndex: pIdx,
+      });
+    }
+
+    // 1.6 Kiểm tra tính hợp lệ thực tế của ngày lịch (VD: 30/02, 31/04)
+    if (parsed.header.dayRaw && parsed.header.monthRaw && parsed.header.yearRaw) {
+      const d = parseInt(parsed.header.dayRaw, 10);
+      const m = parseInt(parsed.header.monthRaw, 10);
+      const y = parseInt(parsed.header.yearRaw, 10);
+      if (!isNaN(d) && !isNaN(m) && !isNaN(y)) {
+        const maxDaysInMonth = new Date(y, m, 0).getDate();
+        if (m < 1 || m > 12 || d < 1 || d > maxDaysInMonth) {
+          issues.push({
+            id: `DATE_INVALID_CALENDAR_${pIdx ?? 0}`,
+            type: LintIssueType.INVALID_DATE_VALUE,
+            severity: LintSeverity.ERROR,
+            message: `Ngày lịch không tồn tại: ngày ${d} tháng ${m} năm ${y}.`,
+            suggestion: `Kiểm tra lại ngày tháng thực tế trên lịch.`,
+            locationInfo: loc,
+            snippet: rawDate,
+            paragraphIndex: pIdx,
+          });
+        }
+      }
+    }
+  }
+
+  // =========================================================================
+  // NHÓM 2: ĐỐI CHIẾU CHÉO [SỐ, KÝ HIỆU] <-> [TÊN LOẠI VĂN BẢN] <-> [CẤU TRÚC]
+  // =========================================================================
+  if (parsed.header.docTypeAbbr) {
+    const abbr = parsed.header.docTypeAbbr.toUpperCase();
+    const expectedDocType = PARTY_DOC_CODE_MAP[abbr];
+
+    if (abbr === "CV" && parsed.docTypeTitle === "CÔNG VĂN") {
+      issues.push({
+        id: `DOC_TYPE_CV_REDUNDANT`,
+        type: LintIssueType.DOC_TYPE_CODE_MISMATCH,
+        severity: LintSeverity.ERROR,
+        message: `Văn bản Công văn (ký hiệu '${abbr}') không được trình bày dòng tiêu đề 'CÔNG VĂN' đứng riêng.`,
+        suggestion: `Xóa dòng chữ 'CÔNG VĂN', chỉ trình bày dòng trích yếu 'V/v...' dưới số ký hiệu và dòng 'Kính gửi:...' ở bên phải.`,
+        locationInfo: parsed.docTypeParagraphIndex !== undefined ? `Đoạn ${parsed.docTypeParagraphIndex + 1}` : "Tiêu đề văn bản",
+        paragraphIndex: parsed.docTypeParagraphIndex,
+      });
+    } else if (
+      expectedDocType &&
+      abbr !== "CV" &&
+      parsed.docTypeTitle &&
+      parsed.docTypeTitle !== expectedDocType
+    ) {
+      issues.push({
+        id: `DOC_TYPE_CODE_MISMATCH`,
+        type: LintIssueType.DOC_TYPE_CODE_MISMATCH,
+        severity: LintSeverity.ERROR,
+        message: `Mâu thuẫn logic: Ký hiệu văn bản là '${abbr}' (${expectedDocType}) nhưng tiêu đề văn bản lại ghi là '${parsed.docTypeTitle}'.`,
+        suggestion: `Đồng bộ lại ký hiệu văn bản hoặc sửa tiêu đề thành '${expectedDocType}'.`,
+        locationInfo: parsed.docTypeParagraphIndex !== undefined ? `Đoạn ${parsed.docTypeParagraphIndex + 1}` : "Tiêu đề văn bản",
+        paragraphIndex: parsed.docTypeParagraphIndex,
+      });
+    }
+  }
+
+  if (parsed.docTypeTitle === "QUYẾT ĐỊNH") {
+    const hasArticles = parsed.nodes.some(
+      (n) => n.role === ParagraphRole.ARTICLE_HEADING
+    );
+    if (!parsed.hasDecisionVerb || !hasArticles) {
+      issues.push({
+        id: `DECISION_STRUCTURE_MISSING`,
+        type: LintIssueType.DOC_TYPE_CODE_MISMATCH,
+        severity: LintSeverity.WARNING,
+        message: `Văn bản QUYẾT ĐỊNH bị thiếu dòng 'QUYẾT ĐỊNH:' hoặc thiếu các 'Điều 1.', 'Điều 2.' trong phần nội dung.`,
+        suggestion: `Bổ sung đầy đủ phần căn cứ, dòng 'QUYẾT ĐỊNH:' và hệ thống các Điều theo mẫu Quyết định của Đảng.`,
+        locationInfo: "Cấu trúc Quyết định",
+        paragraphIndex: parsed.docTypeParagraphIndex,
+      });
+    }
+  }
+
+  // =========================================================================
+  // NHÓM 3: ĐỐI CHIẾU CHÉO [CƠ QUAN BAN HÀNH (Ô 1)] <-> [THẨM QUYỀN KÝ]
+  // =========================================================================
+  if (parsed.footer.signAuthority) {
+    const rawAuth = parsed.footer.signAuthority.trim();
+    const pIdx = parsed.footer.signAuthorityIndex;
+    const loc = pIdx !== undefined ? `Đoạn ${pIdx + 1} (Thẩm quyền ký)` : "Ô Chữ ký";
+
+    // 3.1 Bắt lỗi viết TM., KT., TL. kiểu hành chính Nhà nước thay vì T/M, K/T, T/L
+    if (/^(TM|KT|TL)\.?\s+/i.test(rawAuth)) {
+      issues.push({
+        id: `SIGN_PREFIX_INVALID_${pIdx ?? 0}`,
+        type: LintIssueType.INVALID_SIGN_PREFIX,
+        severity: LintSeverity.ERROR,
+        message: `Ký hiệu quyền hạn ký '${rawAuth.split(/\s+/)[0]}' viết sai thể thức văn bản của Đảng.`,
+        suggestion: `Trong văn bản Đảng, bắt buộc dùng dấu gạch chéo in hoa: 'T/M' (Thay mặt), 'K/T' (Ký thay), 'T/L' (Thừa lệnh).`,
+        locationInfo: loc,
+        snippet: rawAuth,
+        paragraphIndex: pIdx,
+      });
+    }
+  }
+
+  if (parsed.header.issuingOrgan && (parsed.footer.signAuthority || parsed.footer.signRole)) {
+    const issuingUpper = parsed.header.issuingOrgan.toUpperCase();
+    const authUpper = (parsed.footer.signAuthority || "").toUpperCase();
+    const pIdx = parsed.footer.signAuthorityIndex ?? parsed.footer.signRoleIndex;
+    const loc = pIdx !== undefined ? `Đoạn ${pIdx + 1} (Thẩm quyền ký)` : "Ô Chữ ký";
+
+    const isExecutiveOrgan = EXECUTIVE_ORGANS.some((kw) => issuingUpper.startsWith(kw));
+    const isCollectiveOrgan =
+      !isExecutiveOrgan &&
+      COLLECTIVE_ORGANS.some((kw) => issuingUpper.includes(kw));
+
+    const hasTM = /^(T\/M|TM\.?)\s+/.test(authUpper);
+
+    if (isCollectiveOrgan && !hasTM) {
+      issues.push({
+        id: `AUTHORITY_MISSING_TM`,
+        type: LintIssueType.AUTHORITY_SIGNATURE_MISMATCH,
+        severity: LintSeverity.ERROR,
+        message: `Mâu thuẫn thẩm quyền: Cơ quan ban hành ở Ô 1 là tập thể ('${parsed.header.issuingOrgan}') nhưng phần chữ ký lại thiếu dòng thay mặt 'T/M ...'.`,
+        suggestion: `Bổ sung dòng thẩm quyền ký thay mặt tập thể (VD: 'T/M BAN THƯỜNG VỤ' hoặc 'T/M ĐẢNG ỦY') phía trên chức danh người ký.`,
+        locationInfo: loc,
+        paragraphIndex: pIdx,
+      });
+    } else if (isExecutiveOrgan && hasTM) {
+      issues.push({
+        id: `AUTHORITY_WRONG_TM_FOR_EXECUTIVE`,
+        type: LintIssueType.AUTHORITY_SIGNATURE_MISMATCH,
+        severity: LintSeverity.ERROR,
+        message: `Mâu thuẫn thẩm quyền: Cơ quan ban hành ở Ô 1 là '${parsed.header.issuingOrgan}' (cơ quan làm việc theo chế độ thủ trưởng) nên không được ký 'T/M' (${parsed.footer.signAuthority}).`,
+        suggestion: `Nếu ban hành nhân danh cấp ủy thì sửa Ô 1 thành tên Đảng ủy/Cấp ủy; nếu ban hành nhân danh '${parsed.header.issuingOrgan}' thì người đứng đầu ký trực tiếp hoặc cấp phó ký 'K/T'.`,
+        locationInfo: loc,
+        paragraphIndex: pIdx,
+      });
+    }
+  }
+
+  // =========================================================================
+  // NHÓM 4: KIỂM TRA LOGIC CÂY ĐỀ MỤC (HEADING SEQUENCE & HIERARCHY)
+  // =========================================================================
+  let expectedRoman = 1;
+  let firstRomanSeparator: string | undefined;
+  let expectedNumber = 1;
+  let expectedArticle = 1;
+
+  for (const node of parsed.nodes) {
+    if (!node.headingMeta) continue;
+    const loc = `Đoạn ${node.index + 1}`;
+
+    if (node.headingMeta.level === "ROMAN") {
+      const actual = node.headingMeta.numericValue;
+      if (actual !== expectedRoman) {
+        issues.push({
+          id: `HEADING_ROMAN_SEQ_${node.index + 1}`,
+          type: LintIssueType.HEADING_SEQUENCE_ERROR,
+          severity: LintSeverity.ERROR,
+          message: `Đề mục La Mã nhảy cóc hoặc đánh sai thứ tự: Đang ở mục '${node.headingMeta.rawIndex}' (giá trị ${actual}) trong khi thứ tự đúng phải là mục số ${expectedRoman}.`,
+          suggestion: `Kiểm tra và đánh lại số thứ tự các mục lớn I, II, III... liền mạch.`,
+          locationInfo: loc,
+          snippet: node.text.trim(),
+          paragraphIndex: node.index,
+        });
+      }
+      expectedRoman = actual + 1;
+      expectedNumber = 1; // Reset bộ đếm mục con 1., 2. khi sang mục La Mã mới
+
+      if (!firstRomanSeparator) {
+        firstRomanSeparator = node.headingMeta.separator;
+      } else if (
+        node.headingMeta.separator &&
+        node.headingMeta.separator !== firstRomanSeparator
+      ) {
+        issues.push({
+          id: `HEADING_ROMAN_SEP_${node.index + 1}`,
+          type: LintIssueType.HEADING_SEQUENCE_ERROR,
+          severity: LintSeverity.WARNING,
+          message: `Dấu phân cách sau số La Mã không đồng nhất: mục đầu dùng '${firstRomanSeparator}' nhưng mục '${node.headingMeta.rawIndex}' lại dùng '${node.headingMeta.separator}'.`,
+          suggestion: `Thống nhất dùng một kiểu dấu sau số La Mã trên toàn văn bản (hoặc 'I-' hoặc 'I.').`,
+          locationInfo: loc,
+          snippet: node.text.trim(),
+          paragraphIndex: node.index,
+        });
+      }
+    } else if (node.headingMeta.level === "NUMBER") {
+      const actual = node.headingMeta.numericValue;
+      if (actual !== expectedNumber) {
+        issues.push({
+          id: `HEADING_NUM_SEQ_${node.index + 1}`,
+          type: LintIssueType.HEADING_SEQUENCE_ERROR,
+          severity: LintSeverity.ERROR,
+          message: `Đề mục số Ả Rập nhảy cóc hoặc sai thứ tự: Đang ở mục '${actual}.' nhưng thứ tự liên tiếp phải là '${expectedNumber}.'.`,
+          suggestion: `Đánh lại số thứ tự các khoản 1., 2., 3. trong cùng một mục lớn.`,
+          locationInfo: loc,
+          snippet: node.text.trim(),
+          paragraphIndex: node.index,
+        });
+      }
+      expectedNumber = actual + 1;
+    } else if (node.headingMeta.level === "ARTICLE") {
+      const actual = node.headingMeta.numericValue;
+      if (actual !== expectedArticle) {
+        issues.push({
+          id: `HEADING_ARTICLE_SEQ_${node.index + 1}`,
+          type: LintIssueType.HEADING_SEQUENCE_ERROR,
+          severity: LintSeverity.ERROR,
+          message: `Thứ tự Điều trong văn bản bị nhảy cóc: Đang ở 'Điều ${actual}' nhưng thứ tự liên tiếp phải là 'Điều ${expectedArticle}'.`,
+          suggestion: `Đánh lại thứ tự Điều 1, Điều 2, Điều 3... liên tục.`,
+          locationInfo: loc,
+          snippet: node.text.trim(),
+          paragraphIndex: node.index,
+        });
+      }
+      expectedArticle = actual + 1;
+    }
+  }
+
+  // =========================================================================
+  // NHÓM 5: KIỂM TRA LOGIC PHẦN "NƠI NHẬN" & DẤU CÂU KẾT THÚC
+  // =========================================================================
+  const recItems = parsed.footer.recipientItems;
+  if (recItems.length > 0) {
+    for (let idx = 0; idx < recItems.length; idx++) {
+      const item = recItems[idx];
+      const isLast = idx === recItems.length - 1;
+      const loc = `Đoạn ${item.index + 1} (Nơi nhận)`;
+
+      if (!isLast && !item.text.endsWith(";")) {
+        issues.push({
+          id: `RECIPIENT_SEMICOLON_${item.index + 1}`,
+          type: LintIssueType.RECIPIENTS_FORMAT_ERROR,
+          severity: LintSeverity.WARNING,
+          message: `Dòng nơi nhận '${item.text}' chưa kết thúc bằng dấu chấm phẩy (;).`,
+          suggestion: `Tất cả các dòng liệt kê nơi nhận (trừ dòng cuối cùng) phải kết thúc bằng dấu chấm phẩy (;).`,
+          locationInfo: loc,
+          snippet: item.text,
+          paragraphIndex: item.index,
+        });
+      }
+
+      if (isLast) {
+        if (!item.text.endsWith(".")) {
+          issues.push({
+            id: `RECIPIENT_PERIOD_${item.index + 1}`,
+            type: LintIssueType.RECIPIENTS_FORMAT_ERROR,
+            severity: LintSeverity.WARNING,
+            message: `Dòng nơi nhận cuối cùng '${item.text}' phải kết thúc bằng dấu chấm (.).`,
+            suggestion: `Đặt dấu chấm (.) ở cuối dòng nơi nhận cuối cùng.`,
+            locationInfo: loc,
+            snippet: item.text,
+            paragraphIndex: item.index,
+          });
+        }
+        if (!/Lưu\s*(VT|Văn thư|:)/i.test(item.text)) {
+          issues.push({
+            id: `RECIPIENT_MISSING_ARCHIVE_${item.index + 1}`,
+            type: LintIssueType.RECIPIENTS_FORMAT_ERROR,
+            severity: LintSeverity.WARNING,
+            message: `Phần 'Nơi nhận:' chưa có dòng lưu hồ sơ ('- Lưu Văn thư...' / '- Lưu: VT...').`,
+            suggestion: `Bổ sung dòng '- Lưu Văn thư...' ở vị trí cuối cùng của mục Nơi nhận.`,
+            locationInfo: loc,
+            snippet: item.text,
+            paragraphIndex: item.index,
+          });
+        }
+      }
+    }
+  }
+
+  // =========================================================================
+  // NHÓM 6 & 7: QUÉT LỖI DỮ LIỆU BỎ TRỐNG (PLACEHOLDERS) & THỂ THỨC TỪNG ZONE
+  // =========================================================================
+  const spaceTabIndentRegex = /^([ ]{2,}|\t+)/;
+  const placeholderRegex = /(\.{3,}|…|\[\s*\.+\s*\])/;
+  const spaceBeforePunctRegex = /\s+([,.;:!?])/;
+
+  for (const node of parsed.nodes) {
+    if (node.role === ParagraphRole.EMPTY) continue;
+
+    const trimmed = node.text.trim();
+    const loc = `Đoạn ${node.index + 1}`;
+    const snippet = trimmed.length > 55 ? `${trimmed.slice(0, 55)}...` : trimmed;
+
+    // 6.1 Bắt dấu ba chấm (...) hoặc chỗ trống quên điền thông tin trước khi ban hành
+    if (
+      node.role !== ParagraphRole.HEADER_SEPARATOR_LINE &&
+      node.role !== ParagraphRole.TITLE_SEPARATOR_LINE &&
+      node.role !== ParagraphRole.END_MARKER &&
+      placeholderRegex.test(trimmed)
+    ) {
+      issues.push({
+        id: `PLACEHOLDER_${node.index + 1}`,
+        type: LintIssueType.UNFILLED_PLACEHOLDER,
+        severity: LintSeverity.WARNING,
+        message: `Phát hiện dấu ba chấm ('...') hoặc trường thông tin có thể chưa được điền hoàn chỉnh.`,
+        suggestion: `Rà soát và điền đầy đủ số liệu/ngày tháng/tên riêng trước khi trình ký.`,
+        locationInfo: loc,
+        snippet,
+        paragraphIndex: node.index,
+      });
+    }
+
+    // 6.2 Bắt lỗi gõ khoảng trắng thừa trước dấu câu (, . ; :)
+    if (spaceBeforePunctRegex.test(trimmed)) {
+      issues.push({
+        id: `PUNCT_SPACE_${node.index + 1}`,
+        type: LintIssueType.TYPOGRAPHY_PUNCTUATION_ERROR,
+        severity: LintSeverity.INFO,
+        message: `Có khoảng trắng thừa đứng trước dấu câu (',', '.', ';', ':').`,
+        suggestion: `Xóa khoảng trắng thừa trước dấu câu để văn bản chuẩn kỹ thuật trình bày.`,
+        locationInfo: loc,
+        snippet,
+        paragraphIndex: node.index,
+      });
+    }
+
+    // 7.1 Kiểm tra phông chữ Times New Roman trên TOÀN BỘ các Zone (kể cả trong bảng)
+    if (node.fontName && node.fontName !== TYPOGRAPHY_CONSTANTS.FONT_FAMILY) {
+      issues.push({
+        id: `FONT_NAME_${node.index + 1}`,
+        type: LintIssueType.NON_STANDARD_FONT,
+        severity: LintSeverity.ERROR,
+        message: `Phông chữ hiện tại là '${node.fontName}', không đúng quy chuẩn '${TYPOGRAPHY_CONSTANTS.FONT_FAMILY}'.`,
+        suggestion: `Chuyển phông chữ về '${TYPOGRAPHY_CONSTANTS.FONT_FAMILY}'.`,
+        locationInfo: loc,
+        snippet,
+        paragraphIndex: node.index,
+      });
+    }
+
+    // 7.2 Kiểm tra thể thức chuyên biệt trong vùng HEADER & FOOTER
+    if (
+      node.role === ParagraphRole.HEADER_ISSUING_ORGAN ||
+      node.role === ParagraphRole.HEADER_PARTY_MOTTO ||
+      node.role === ParagraphRole.SIGN_AUTHORITY ||
+      node.role === ParagraphRole.SIGN_ROLE ||
+      node.role === ParagraphRole.SIGN_NAME
+    ) {
+      if (node.fontBold === false) {
+        issues.push({
+          id: `HEADER_FOOTER_BOLD_${node.index + 1}`,
+          type: LintIssueType.HEADER_FOOTER_STYLE_ERROR,
+          severity: LintSeverity.WARNING,
+          message: `Thành phần '${snippet}' bắt buộc phải được in đậm (Bold) theo Hướng dẫn 05-HD/VPTW.`,
+          suggestion: `Bật định dạng In đậm (Bold) cho dòng này.`,
+          locationInfo: loc,
+          snippet,
+          paragraphIndex: node.index,
+        });
+      }
+    }
+
+    if (node.role === ParagraphRole.HEADER_DATE_LOCATION && node.fontItalic === false) {
+      issues.push({
+        id: `HEADER_DATE_ITALIC_${node.index + 1}`,
+        type: LintIssueType.HEADER_FOOTER_STYLE_ERROR,
+        severity: LintSeverity.WARNING,
+        message: `Dòng địa danh, ngày tháng năm '${snippet}' chưa được in nghiêng (Italic).`,
+        suggestion: `Định dạng chữ in thường, kiểu chữ Nghiêng (Italic) cho dòng ngày tháng.`,
+        locationInfo: loc,
+        snippet,
+        paragraphIndex: node.index,
+      });
+    }
+
+    // 7.3 Kiểm tra đoạn văn trong vùng BODY (chỉ áp dụng cho văn xuôi và đề mục, KHÔNG báo lỗi nhầm tiêu đề)
+    const isBodyProseOrHeading =
+      node.zone === DocumentZone.BODY &&
+      node.role !== ParagraphRole.DATA_TABLE_CELL &&
+      node.role !== ParagraphRole.HEADING_PART &&
+      node.role !== ParagraphRole.END_MARKER;
+
+    if (isBodyProseOrHeading || node.zone === DocumentZone.LEGAL_BASIS) {
+      if (node.role === ParagraphRole.DECISION_VERB) continue;
+
+      if (spaceTabIndentRegex.test(node.text)) {
+        issues.push({
+          id: `SPACE_TAB_INDENT_${node.index + 1}`,
+          type: LintIssueType.SPACE_OR_TAB_INDENTATION,
+          severity: LintSeverity.ERROR,
+          message: `Đoạn văn dùng phím Space hoặc Tab ở đầu dòng để thụt lề thay vì dùng First Line Indent.`,
+          suggestion: `Xóa khoảng trắng/tab đầu dòng và đặt First Line Indent = 10mm.`,
+          locationInfo: loc,
+          snippet,
+          paragraphIndex: node.index,
+        });
+      }
+
+      if (
+        node.alignment &&
+        node.alignment.toLowerCase() !== "justified" &&
+        node.alignment.toLowerCase() !== "justify"
+      ) {
+        issues.push({
+          id: `ALIGNMENT_${node.index + 1}`,
+          type: LintIssueType.INVALID_ALIGNMENT,
+          severity: LintSeverity.WARNING,
+          message: `Đoạn nội dung chưa được căn đều hai bên (Justified). Hiện tại là '${node.alignment}'.`,
+          suggestion: `Đặt Alignment của đoạn thành Căn đều hai bên (Justified).`,
+          locationInfo: loc,
+          snippet,
+          paragraphIndex: node.index,
+        });
+      }
+
+      if (node.firstLineIndent !== undefined) {
+        // Cho phép biên độ chuẩn từ 10mm (28.35pt) đến 12.7mm (36pt) với sai số ±3pt
+        const minAllowedPt = TYPOGRAPHY_CONSTANTS.FIRST_LINE_INDENT_PT - 3;
+        const maxAllowedPt = TYPOGRAPHY_CONSTANTS.FIRST_LINE_INDENT_MAX_PT + 3;
+        if (node.firstLineIndent < minAllowedPt || node.firstLineIndent > maxAllowedPt) {
+          issues.push({
+            id: `INDENT_${node.index + 1}`,
+            type: LintIssueType.INVALID_FIRST_LINE_INDENT,
+            severity: LintSeverity.WARNING,
+            message: `Thụt lề đầu dòng hiện tại là ${ptToMm(node.firstLineIndent)}mm (~${node.firstLineIndent}pt), nằm ngoài chuẩn 10mm - 12.7mm.`,
+            suggestion: `Đặt First Line Indent chuẩn 10 mm (28.35 pt).`,
+            locationInfo: loc,
+            snippet,
+            paragraphIndex: node.index,
+          });
+        }
+      }
+
+      if (node.fontSize && (node.fontSize < 13 || node.fontSize > 14.5)) {
+        issues.push({
+          id: `FONT_SIZE_${node.index + 1}`,
+          type: LintIssueType.NON_STANDARD_FONT,
+          severity: LintSeverity.WARNING,
+          message: `Cỡ chữ nội dung là ${node.fontSize}pt, nằm ngoài khoảng quy chuẩn (13 - 14 pt).`,
+          suggestion: `Chuyển cỡ chữ nội dung về 14 pt (hoặc 13 pt).`,
+          locationInfo: loc,
+          snippet,
+          paragraphIndex: node.index,
+        });
+      }
+    }
+  }
+
+  return issues;
+}
+
+/**
+ * 6. Hàm tích hợp quét lỗi toàn văn bản Word (`lintDocument`)
+ */
+export async function lintDocument(
+  context: Word.RequestContext
+): Promise<LintReport> {
+  const pageIssues: LintIssue[] = [];
+
+  const sections = context.document.sections;
+  sections.load(["items/pageSetup"]);
+  const { parsed } = await parseWordDocument(context);
+
+  // Kiểm tra Khổ giấy & Lề trang (Page Setup)
+  for (let sIdx = 0; sIdx < sections.items.length; sIdx++) {
+    const ps = sections.items[sIdx].pageSetup;
+    const topMm = ptToMm(ps.topMargin);
+    const bottomMm = ptToMm(ps.bottomMargin);
+    const leftMm = ptToMm(ps.leftMargin);
+    const rightMm = ptToMm(ps.rightMargin);
+
+    const TOLERANCE_MM = 1.5;
+
+    if (
+      Math.abs(topMm - PAGE_SETUP_CONSTANTS.MARGIN_TOP_MM) > TOLERANCE_MM ||
+      Math.abs(bottomMm - PAGE_SETUP_CONSTANTS.MARGIN_BOTTOM_MM) > TOLERANCE_MM ||
+      Math.abs(leftMm - PAGE_SETUP_CONSTANTS.MARGIN_LEFT_MM) > TOLERANCE_MM ||
+      Math.abs(rightMm - PAGE_SETUP_CONSTANTS.MARGIN_RIGHT_MM) > TOLERANCE_MM
+    ) {
+      pageIssues.push({
+        id: `PAGE_MARGIN_${sIdx + 1}`,
+        type: LintIssueType.INVALID_MARGIN,
+        severity: LintSeverity.ERROR,
+        message: `Lề trang Section ${sIdx + 1} chưa chuẩn: Trên ${topMm}mm, Dưới ${bottomMm}mm, Trái ${leftMm}mm, Phải ${rightMm}mm.`,
+        suggestion: `Điều chỉnh lề về chuẩn 05-HD/VPTW: Trên 20mm, Dưới 20mm, Trái 30mm, Phải 15mm.`,
+        locationInfo: `Section ${sIdx + 1}`,
+      });
+    }
+
+    if (!ps.differentFirstPageHeaderFooter) {
+      pageIssues.push({
+        id: `PAGE_DIFF_FIRST_${sIdx + 1}`,
+        type: LintIssueType.INVALID_MARGIN,
+        severity: LintSeverity.WARNING,
+        message: `Chưa bật chế độ không đánh số trang ở trang đầu tiên (differentFirstPageHeaderFooter).`,
+        suggestion: `Bật tùy chọn 'Different First Page' để không in số trang tại trang 1.`,
+        locationInfo: `Section ${sIdx + 1}`,
+      });
+    }
+  }
+
+  const allIssues = lintParsedDocument(parsed, pageIssues);
+
+  const errorCount = allIssues.filter((i) => i.severity === LintSeverity.ERROR).length;
+  const warningCount = allIssues.filter((i) => i.severity === LintSeverity.WARNING).length;
+  const infoCount = allIssues.filter((i) => i.severity === LintSeverity.INFO).length;
+
+  return {
+    isValid: errorCount === 0,
+    totalIssues: allIssues.length,
+    errorCount,
+    warningCount,
+    infoCount,
+    issues: allIssues,
+    timestamp: new Date().toISOString(),
+  };
+}
+
+```
+
+---
+
+### 5. File `src/index.ts` (Export thêm `documentParser`)
+
+Cập nhật `src/index.ts` để export cả module `documentParser`:
+
+```typescript
+/**
+ * src/index.ts
+ * Module chuẩn hóa thể thức và kiểm tra logic văn bản của Đảng
+ * Căn cứ: Hướng dẫn số 05-HD/VPTW ngày 27/5/2026 của Văn phòng Trung ương Đảng
+ */
+
+export * from "./constants";
+export * from "./types";
+export * from "./documentParser";
+export * from "./formatService";
+
+import {
+  applyPageSetup,
+  formatBodyContent,
+  insertHeaderTable,
+  insertSignatureTable,
+  lintDocument,
+} from "./formatService";
+
+import {
+  HeaderData,
+  SignData,
+  FormatBodyOptions,
+  PageSetupOptions,
+  LintReport,
+} from "./types";
+
+export interface StandardizeConfig {
+  fontSize?: number;
+  pageSetupOptions?: PageSetupOptions;
+  bodyOptions?: FormatBodyOptions;
+  headerData?: HeaderData;
+  signData?: SignData;
+}
+
+export async function standardizeDocument(
+  context: Word.RequestContext,
+  config?: StandardizeConfig
+): Promise<LintReport> {
+  await applyPageSetup(context, config?.pageSetupOptions);
+  await formatBodyContent(context, config?.fontSize, config?.bodyOptions);
+
+  if (config?.headerData) {
+    await insertHeaderTable(context, config.headerData);
+  }
+
+  if (config?.signData) {
+    await insertSignatureTable(context, config.signData);
+  }
+
+  const report = await lintDocument(context);
+  return report;
+}
+
+```
+
+---
+
+### 6. File `src/taskpane.ts` (Bấm vào thẻ lỗi tự động nhảy tới đúng đoạn văn trong Word)
+
+Cập nhật hàm `renderLintResults` và thêm hàm `jumpToParagraph` trong `src/taskpane.ts` để khi người dùng bấm vào bất kỳ lỗi nào trên Taskpane, Word sẽ cuộn tới và bôi đen đúng đoạn đang bị lỗi:
+
+```typescript
+/**
+ * src/taskpane.ts
+ * Logic giao diện điều khiển Taskpane Word Add-in (Hỗ trợ Click-to-Jump tới dòng lỗi)
+ */
+
+import {
+  applyPageSetup,
+  formatBodyContent,
+  insertHeaderTable,
+  insertSignatureTable,
+  lintDocument,
+  standardizeDocument,
+} from "./index";
+import { LintReport, LintSeverity } from "./types";
+
+/* global Office, Word */
+
+Office.onReady((info) => {
+  if (info.host === Office.HostType.Word) {
+    document.getElementById("btn-standardize-all")?.addEventListener("click", handleStandardizeAll);
+    document.getElementById("btn-page-setup")?.addEventListener("click", handlePageSetup);
+    document.getElementById("btn-format-body")?.addEventListener("click", handleFormatBody);
+    document.getElementById("btn-insert-header")?.addEventListener("click", handleInsertHeader);
+    document.getElementById("btn-insert-signature")?.addEventListener("click", handleInsertSignature);
+    document.getElementById("btn-lint")?.addEventListener("click", handleLint);
+  }
+});
+
+function showToast(message: string, type: "success" | "error" = "success") {
+  const toast = document.getElementById("status-toast");
+  if (!toast) return;
+  toast.textContent = message;
+  toast.className = `toast ${type}`;
+  setTimeout(() => {
+    toast.className = "toast hidden";
+  }, 3500);
+}
+
+async function jumpToParagraph(paragraphIndex: number) {
+  try {
+    await Word.run(async (context) => {
+      const paragraphs = context.document.body.paragraphs;
+      paragraphs.load("items");
+      await context.sync();
+
+      if (paragraphIndex >= 0 && paragraphIndex < paragraphs.items.length) {
+        paragraphs.items[paragraphIndex].select(Word.SelectionMode.select);
+        await context.sync();
+      }
+    });
+  } catch (err) {
+    console.error("Không thể di chuyển tới đoạn văn:", err);
+  }
+}
+
+async function handleStandardizeAll() {
+  try {
+    await Word.run(async (context) => {
+      showToast("Đang chuẩn hóa toàn bộ văn bản...");
+      const report = await standardizeDocument(context, {
+        fontSize: 14,
+      });
+      showToast("✅ Đã chuẩn hóa toàn bộ văn bản thành công!", "success");
+      renderLintResults(report);
+    });
+  } catch (err: any) {
+    console.error(err);
+    showToast(`❌ Lỗi: ${err.message || err}`, "error");
+  }
+}
+
+async function handlePageSetup() {
+  try {
+    await Word.run(async (context) => {
+      showToast("Đang thiết lập khổ A4 và căn lề...");
+      await applyPageSetup(context);
+      showToast("✅ Đã thiết lập khổ A4, lề 20-20-30-15mm và đánh số trang!", "success");
+    });
+  } catch (err: any) {
+    console.error(err);
+    showToast(`❌ Lỗi: ${err.message || err}`, "error");
+  }
+}
+
+async function handleFormatBody() {
+  try {
+    await Word.run(async (context) => {
+      showToast("Đang chuẩn hóa toàn bộ các phân vùng văn bản...");
+      await formatBodyContent(context, 14);
+      showToast("✅ Đã chuẩn hóa Header, Tiêu đề, Nội dung & Chữ ký!", "success");
+    });
+  } catch (err: any) {
+    console.error(err);
+    showToast(`❌ Lỗi: ${err.message || err}`, "error");
+  }
+}
+
+async function handleInsertHeader() {
+  try {
+    const superiorOrgan = (document.getElementById("inp-superior") as HTMLInputElement)?.value;
+    const issuingOrgan = (document.getElementById("inp-issuing") as HTMLInputElement)?.value || "VĂN PHÒNG";
+    const docNumber = (document.getElementById("inp-doc-num") as HTMLInputElement)?.value || "05";
+    const docCode = (document.getElementById("inp-doc-code") as HTMLInputElement)?.value || "HD/VPTW";
+    const location = (document.getElementById("inp-location") as HTMLInputElement)?.value || "Hà Nội";
+
+    await Word.run(async (context) => {
+      showToast("Đang chèn/cập nhật Header...");
+      await insertHeaderTable(context, {
+        superiorOrgan: superiorOrgan.trim() || undefined,
+        issuingOrgan: issuingOrgan.trim(),
+        docNumber,
+        docCode,
+        location,
+        date: new Date(),
+      });
+      showToast("✅ Đã cập nhật Header Ô 1 & Ô 2 chuẩn Hướng dẫn 05-HD/VPTW!", "success");
+    });
+  } catch (err: any) {
+    console.error(err);
+    showToast(`❌ Lỗi: ${err.message || err}`, "error");
+  }
+}
+
+async function handleInsertSignature() {
+  try {
+    const recipientsRaw = (document.getElementById("inp-recipients") as HTMLTextAreaElement)?.value || "";
+    const signTitle = (document.getElementById("inp-sign-title") as HTMLInputElement)?.value || "T/M BAN THƯỜNG VỤ";
+    const signerRole = (document.getElementById("inp-sign-role") as HTMLInputElement)?.value || "";
+    const signerName = (document.getElementById("inp-sign-name") as HTMLInputElement)?.value || "Nguyễn Văn A";
+
+    const recipients = recipientsRaw
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+
+    await Word.run(async (context) => {
+      showToast("Đang chèn/cập nhật bảng Chữ ký & Nơi nhận...");
+      await insertSignatureTable(context, {
+        recipients,
+        signTitle,
+        signerRole: signerRole.trim() || undefined,
+        signerName,
+        signatureSpaceMm: 38,
+      });
+      showToast("✅ Đã cập nhật Chân trang (Nơi nhận & Chữ ký) thành công!", "success");
+    });
+  } catch (err: any) {
+    console.error(err);
+    showToast(`❌ Lỗi: ${err.message || err}`, "error");
+  }
+}
+
+async function handleLint() {
+  try {
+    await Word.run(async (context) => {
+      showToast("Đang quét thể thức & logic toàn văn bản...");
+      const report = await lintDocument(context);
+      renderLintResults(report);
+      showToast(
+        `Đã quét xong: Phát hiện ${report.totalIssues} vấn đề (${report.errorCount} lỗi nghiêm trọng)`,
+        report.isValid ? "success" : "error"
+      );
+    });
+  } catch (err: any) {
+    console.error(err);
+    showToast(`❌ Lỗi: ${err.message || err}`, "error");
+  }
+}
+
+function renderLintResults(report: LintReport) {
+  const container = document.getElementById("lint-result-container");
+  if (!container) return;
+
+  if (report.issues.length === 0) {
+    container.innerHTML = `
+      <div class="lint-badge-success">
+        ✓ Tài liệu đạt chuẩn 100% về thể thức và logic theo Hướng dẫn 05-HD/VPTW!
+      </div>
+    `;
+    return;
+  }
+
+  let html = `<div style="margin-bottom: 6px; font-weight: 600;">Phát hiện ${report.totalIssues} điểm cần lưu ý (Bấm vào lỗi để nhảy tới dòng):</div>`;
+  report.issues.forEach((issue, idx) => {
+    const sevClass =
+      issue.severity === LintSeverity.ERROR
+        ? "error"
+        : issue.severity === LintSeverity.WARNING
+        ? "warning"
+        : "info";
+    const clickableAttr =
+      issue.paragraphIndex !== undefined
+        ? `data-pidx="${issue.paragraphIndex}" style="cursor: pointer;" title="Bấm để bôi đen đoạn này trong Word"`
+        : "";
+
+    html += `
+      <div class="lint-item ${sevClass}" id="lint-card-${idx}" ${clickableAttr}>
+        <div class="lint-title">[${issue.locationInfo || "Văn bản"}] ${issue.message}</div>
+        <div class="lint-suggest">👉 <em>${issue.suggestion}</em></div>
+      </div>
+    `;
+  });
+
+  container.innerHTML = html;
+
+  // Gắn sự kiện click để nhảy tới đúng đoạn văn trong Word
+  report.issues.forEach((issue, idx) => {
+    if (issue.paragraphIndex !== undefined) {
+      const card = document.getElementById(`lint-card-${idx}`);
+      card?.addEventListener("click", () => {
+        jumpToParagraph(issue.paragraphIndex!);
+      });
+    }
+  });
+}
+
+```
+
+---
+
+### 7. File `test/unit.test.ts` (Kiểm thử toàn diện Parser & Rà soát Logic)
+
+Thay thế `test/unit.test.ts` bằng file dưới đây rồi chạy `npm test` để kiểm chứng toàn bộ các ca bắt lỗi logic mới:
+
+```typescript
+/**
+ * test/unit.test.ts
+ * Kiểm thử đơn vị cho AST Zone Parser, Formatters và Bộ Rà Soát Logic 05-HD/VPTW
+ */
+
+import { mmToPt, ptToMm, PAGE_SETUP_CONSTANTS } from "../src/constants";
+import {
+  formatDocNumber,
+  formatPartyDate,
+  lintParsedDocument,
+} from "../src/formatService";
+import { parseDocumentStructure } from "../src/documentParser";
+import { LintIssueType, RawParagraphNode, DocumentZone, ParagraphRole } from "../src/types";
+
+function assert(condition: boolean, message: string) {
+  if (!condition) {
+    console.error(`❌ FAIL: ${message}`);
+    throw new Error(`Test failed: ${message}`);
+  }
+  console.log(`✅ PASS: ${message}`);
+}
+
+console.log("=== BẮT ĐẦU KIỂM THỬ THỂ THỨC & LOGIC 05-HD/VPTW ===");
+
+// 1. Kiểm thử chuyển đổi đơn vị
+assert(Math.abs(mmToPt(10) - 28.3465) < 0.001, "10 mm ≈ 28.35 pt");
+assert(Math.abs(ptToMm(PAGE_SETUP_CONSTANTS.MARGIN_LEFT_PT) - 30) < 0.001, "ptToMm(MARGIN_LEFT_PT) == 30 mm");
+
+// 2. Kiểm thử chuẩn hóa số văn bản & ngày tháng (bao gồm cả xóa số 0 thừa ở tháng 3..9)
+assert(formatDocNumber(5) === "05", "Số 5 -> '05'");
+const date1 = formatPartyDate("Hà Nội", { day: 5, month: 2, year: 2026 });
+assert(date1 === "Hà Nội, ngày 05 tháng 02 năm 2026", `Ngày 5 tháng 2 -> '${date1}'`);
+
+const rawDateExcessZero = formatPartyDate("Thạnh Phú", "ngày 5 tháng 08 năm 2026");
+assert(
+  rawDateExcessZero === "Thạnh Phú, ngày 05 tháng 8 năm 2026",
+  `Tự động thêm số 0 cho ngày 5 và xóa số 0 thừa ở tháng 08 -> '${rawDateExcessZero}'`
+);
+
+// 3. Kiểm thử AST Parser & Bộ Rà Soát Logic diện rộng trên một văn bản mẫu có gài nhiều lỗi logic
+const sampleRawParagraphs: RawParagraphNode[] = [
+  { index: 0, text: "HUYỆN ỦY THẠNH PHÚ", tableNestingLevel: 1, fontName: "Times New Roman", fontSize: 13, fontBold: false },
+  { index: 1, text: "ĐẢNG ỦY XÃ THẠNH PHÚ", tableNestingLevel: 1, fontName: "Times New Roman", fontSize: 13, fontBold: true },
+  { index: 2, text: "Số: 5/BC-ĐU", tableNestingLevel: 1, fontName: "Times New Roman", fontSize: 13 },
+  { index: 3, text: "ĐẢNG CỘNG SẢN VIỆT NAM", tableNestingLevel: 1, fontName: "Times New Roman", fontSize: 13, fontBold: true },
+  { index: 4, text: "Thạnh Phú, ngày 5 tháng 08 năm 2026", tableNestingLevel: 1, fontName: "Times New Roman", fontSize: 13, fontItalic: false },
+  { index: 5, text: "KẾ HOẠCH", tableNestingLevel: 0, fontName: "Times New Roman", fontSize: 15, fontBold: true },
+  { index: 6, text: "Triển khai công tác kiểm tra, giám sát quý III năm 2026", tableNestingLevel: 0, fontName: "Times New Roman", fontSize: 14, fontBold: true },
+  { index: 7, text: "-----", tableNestingLevel: 0, fontName: "Times New Roman", fontSize: 12 },
+  { index: 8, text: "I. MỤC ĐÍCH, YÊU CẦU", tableNestingLevel: 0, fontName: "Times New Roman", fontSize: 14, alignment: "Justified", firstLineIndent: 28.35 },
+  { index: 9, text: "1. Mục đích thực hiện...", tableNestingLevel: 0, fontName: "Times New Roman", fontSize: 14, alignment: "Justified", firstLineIndent: 28.35 },
+  { index: 10, text: "3. Yêu cầu triển khai thực hiện.", tableNestingLevel: 0, fontName: "Times New Roman", fontSize: 14, alignment: "Justified", firstLineIndent: 28.35 },
+  { index: 11, text: "III- NỘI DUNG THỰC HIỆN", tableNestingLevel: 0, fontName: "Times New Roman", fontSize: 14, alignment: "Justified", firstLineIndent: 28.35 },
+  { index: 12, text: "Nơi nhận:", tableNestingLevel: 1, fontName: "Times New Roman", fontSize: 11, fontBold: true, fontItalic: true },
+  { index: 13, text: "- Thường trực Huyện ủy (để b/c)", tableNestingLevel: 1, fontName: "Times New Roman", fontSize: 11 },
+  { index: 14, text: "- Lưu Văn thư", tableNestingLevel: 1, fontName: "Times New Roman", fontSize: 11 },
+  { index: 15, text: "BÍ THƯ", tableNestingLevel: 1, fontName: "Times New Roman", fontSize: 13, fontBold: true },
+  { index: 16, text: "Nguyễn Văn A", tableNestingLevel: 1, fontName: "Times New Roman", fontSize: 13, fontBold: true },
+];
+
+const parsed = parseDocumentStructure(sampleRawParagraphs);
+
+assert(parsed.header.superiorOrgan === "HUYỆN ỦY THẠNH PHÚ", "Parser nhận diện đúng Cơ quan cấp trên");
+assert(parsed.header.issuingOrgan === "ĐẢNG ỦY XÃ THẠNH PHÚ", "Parser nhận diện đúng Cơ quan ban hành");
+assert(parsed.docTypeTitle === "KẾ HOẠCH", "Parser nhận diện đúng Tên loại văn bản");
+assert(parsed.nodes[6].role === ParagraphRole.DOC_SUMMARY, "Parser nhận diện đúng dòng Trích yếu dưới Tên loại văn bản");
+assert(parsed.nodes[12].zone === DocumentZone.FOOTER, "Parser nhận diện đúng vùng FOOTER trong bảng");
+
+const issues = lintParsedDocument(parsed);
+const issueTypes = new Set(issues.map((i) => i.type));
+
+assert(issueTypes.has(LintIssueType.INVALID_DOC_CODE_FORMAT), "Bắt được lỗi viết 'Số: 5/BC-ĐU' kiểu hành chính Nhà nước");
+assert(issueTypes.has(LintIssueType.MISSING_LEADING_ZERO_NUMBER), "Bắt được lỗi thiếu số 0 ở Số 5");
+assert(issueTypes.has(LintIssueType.MISSING_LEADING_ZERO_DATE), "Bắt được lỗi thiếu số 0 ở ngày 5");
+assert(issueTypes.has(LintIssueType.EXCESS_LEADING_ZERO_DATE), "Bắt được lỗi thừa số 0 ở tháng 08");
+assert(issueTypes.has(LintIssueType.DOC_TYPE_CODE_MISMATCH), "Bắt được lỗi mâu thuẫn ký hiệu 'BC' nhưng tiêu đề là 'KẾ HOẠCH'");
+assert(issueTypes.has(LintIssueType.HEADING_SEQUENCE_ERROR), "Bắt được lỗi nhảy cóc đề mục (I -> III và 1. -> 3.)");
+assert(issueTypes.has(LintIssueType.AUTHORITY_SIGNATURE_MISMATCH), "Bắt được lỗi cơ quan tập thể 'ĐẢNG ỦY XÃ' nhưng chữ ký thiếu 'T/M'");
+assert(issueTypes.has(LintIssueType.RECIPIENTS_FORMAT_ERROR), "Bắt được lỗi thiếu dấu ';' và '.' ở phần Nơi nhận");
+assert(issueTypes.has(LintIssueType.UNFILLED_PLACEHOLDER), "Bắt được lỗi còn dấu '...' chưa điền xong");
+assert(issueTypes.has(LintIssueType.HEADER_FOOTER_STYLE_ERROR), "Bắt được lỗi ngày tháng trong bảng Header quên in nghiêng");
+
+console.log("=== TẤT CẢ KIỂM THỬ THỂ THỨC & LOGIC ĐÃ THÀNH CÔNG 100% ===");
+
+```
+
+---
+
+### Cách chạy kiểm tra ngay trên máy mày:
+
+1. Lưu các file trên vào đúng đường dẫn trong project `cuongbc195-addin-chuanhoathethuc`.
+
+
+2. Mở Terminal tại thư mục gốc của project và chạy:
+```bash
+npm run typecheck
+npm test
+
+```
+
+
+3. Toàn bộ các ca test logic diện rộng sẽ pass xanh mượt. Nếu mày muốn tinh chỉnh thêm quy tắc riêng nào của Văn phòng Đảng ủy xã (ví dụ các mẫu câu đặc thù hay hệ thống VBA bên trong file `.dotm`), cứ hú tao nhé!

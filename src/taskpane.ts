@@ -1,6 +1,6 @@
 /**
- * taskpane.ts
- * Logic giao diện điều khiển Taskpane Word Add-in
+ * src/taskpane.ts
+ * Logic giao diện điều khiển Taskpane Word Add-in (Hỗ trợ Click-to-Jump tới dòng lỗi)
  */
 
 import {
@@ -36,6 +36,23 @@ function showToast(message: string, type: "success" | "error" = "success") {
   }, 3500);
 }
 
+async function jumpToParagraph(paragraphIndex: number) {
+  try {
+    await Word.run(async (context) => {
+      const paragraphs = context.document.body.paragraphs;
+      paragraphs.load("items");
+      await context.sync();
+
+      if (paragraphIndex >= 0 && paragraphIndex < paragraphs.items.length) {
+        paragraphs.items[paragraphIndex].select(Word.SelectionMode.select);
+        await context.sync();
+      }
+    });
+  } catch (err) {
+    console.error("Không thể di chuyển tới đoạn văn:", err);
+  }
+}
+
 async function handleStandardizeAll() {
   try {
     await Word.run(async (context) => {
@@ -68,9 +85,9 @@ async function handlePageSetup() {
 async function handleFormatBody() {
   try {
     await Word.run(async (context) => {
-      showToast("Đang chuẩn hóa đoạn văn nội dung...");
+      showToast("Đang chuẩn hóa toàn bộ các phân vùng văn bản...");
       await formatBodyContent(context, 14);
-      showToast("✅ Đã chuẩn hóa phông Times New Roman, Justified, thụt lề 10mm!", "success");
+      showToast("✅ Đã chuẩn hóa Header, Tiêu đề, Nội dung & Chữ ký!", "success");
     });
   } catch (err: any) {
     console.error(err);
@@ -87,16 +104,16 @@ async function handleInsertHeader() {
     const location = (document.getElementById("inp-location") as HTMLInputElement)?.value || "Hà Nội";
 
     await Word.run(async (context) => {
-      showToast("Đang chèn Header...");
+      showToast("Đang chèn/cập nhật Header...");
       await insertHeaderTable(context, {
         superiorOrgan: superiorOrgan.trim() || undefined,
         issuingOrgan: issuingOrgan.trim(),
-        docNumber: docNumber,
-        docCode: docCode,
-        location: location,
+        docNumber,
+        docCode,
+        location,
         date: new Date(),
       });
-      showToast("✅ Đã chèn Header Ô 1 & Ô 2 chuẩn Hướng dẫn 05-HD/VPTW!", "success");
+      showToast("✅ Đã cập nhật Header Ô 1 & Ô 2 chuẩn Hướng dẫn 05-HD/VPTW!", "success");
     });
   } catch (err: any) {
     console.error(err);
@@ -117,7 +134,7 @@ async function handleInsertSignature() {
       .filter((line) => line.length > 0);
 
     await Word.run(async (context) => {
-      showToast("Đang chèn bảng Chữ ký & Nơi nhận...");
+      showToast("Đang chèn/cập nhật bảng Chữ ký & Nơi nhận...");
       await insertSignatureTable(context, {
         recipients,
         signTitle,
@@ -125,7 +142,7 @@ async function handleInsertSignature() {
         signerName,
         signatureSpaceMm: 38,
       });
-      showToast("✅ Đã chèn Chân trang (Nơi nhận & Chữ ký) thành công!", "success");
+      showToast("✅ Đã cập nhật Chân trang (Nơi nhận & Chữ ký) thành công!", "success");
     });
   } catch (err: any) {
     console.error(err);
@@ -136,10 +153,13 @@ async function handleInsertSignature() {
 async function handleLint() {
   try {
     await Word.run(async (context) => {
-      showToast("Đang quét lỗi thể thức...");
+      showToast("Đang quét thể thức & logic toàn văn bản...");
       const report = await lintDocument(context);
       renderLintResults(report);
-      showToast(`Đã quét xong: Phát hiện ${report.totalIssues} vấn đề`, report.isValid ? "success" : "error");
+      showToast(
+        `Đã quét xong: Phát hiện ${report.totalIssues} vấn đề (${report.errorCount} lỗi nghiêm trọng)`,
+        report.isValid ? "success" : "error"
+      );
     });
   } catch (err: any) {
     console.error(err);
@@ -154,17 +174,27 @@ function renderLintResults(report: LintReport) {
   if (report.issues.length === 0) {
     container.innerHTML = `
       <div class="lint-badge-success">
-        ✓ Tài liệu chuẩn 100% theo Hướng dẫn 05-HD/VPTW!
+        ✓ Tài liệu đạt chuẩn 100% về thể thức và logic theo Hướng dẫn 05-HD/VPTW!
       </div>
     `;
     return;
   }
 
-  let html = `<div style="margin-bottom: 6px; font-weight: 600;">Phát hiện ${report.totalIssues} điểm cần lưu ý:</div>`;
-  report.issues.forEach((issue) => {
-    const sevClass = issue.severity === LintSeverity.ERROR ? "error" : issue.severity === LintSeverity.WARNING ? "warning" : "info";
+  let html = `<div style="margin-bottom: 6px; font-weight: 600;">Phát hiện ${report.totalIssues} điểm cần lưu ý (Bấm vào lỗi để nhảy tới dòng):</div>`;
+  report.issues.forEach((issue, idx) => {
+    const sevClass =
+      issue.severity === LintSeverity.ERROR
+        ? "error"
+        : issue.severity === LintSeverity.WARNING
+        ? "warning"
+        : "info";
+    const clickableAttr =
+      issue.paragraphIndex !== undefined
+        ? `data-pidx="${issue.paragraphIndex}" style="cursor: pointer;" title="Bấm để bôi đen đoạn này trong Word"`
+        : "";
+
     html += `
-      <div class="lint-item ${sevClass}">
+      <div class="lint-item ${sevClass}" id="lint-card-${idx}" ${clickableAttr}>
         <div class="lint-title">[${issue.locationInfo || "Văn bản"}] ${issue.message}</div>
         <div class="lint-suggest">👉 <em>${issue.suggestion}</em></div>
       </div>
@@ -172,4 +202,14 @@ function renderLintResults(report: LintReport) {
   });
 
   container.innerHTML = html;
+
+  // Gắn sự kiện click để nhảy tới đúng đoạn văn trong Word
+  report.issues.forEach((issue, idx) => {
+    if (issue.paragraphIndex !== undefined) {
+      const card = document.getElementById(`lint-card-${idx}`);
+      card?.addEventListener("click", () => {
+        jumpToParagraph(issue.paragraphIndex!);
+      });
+    }
+  });
 }

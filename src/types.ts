@@ -1,185 +1,223 @@
 /**
- * Kiểu dữ liệu và Interfaces cho Word Web Add-in
- * Chuẩn hóa thể thức văn bản Đảng theo Hướng dẫn số 05-HD/VPTW
+ * src/types.ts
+ * Kiểu dữ liệu, Phân vùng AST (Zones/Roles) và Interfaces cho Word Web Add-in
+ * Chuẩn hóa thể thức & rà soát logic văn bản Đảng theo Hướng dẫn số 05-HD/VPTW
  */
 
-/** Phân loại mức độ nghiêm trọng của lỗi thể thức */
 export enum LintSeverity {
   ERROR = "error",
   WARNING = "warning",
   INFO = "info",
 }
 
-/** Danh mục mã lỗi thể thức văn bản thường gặp */
+/** Danh mục mã lỗi thể thức & logic văn bản Đảng */
 export enum LintIssueType {
-  /** Quên số 0 đằng trước số văn bản nhỏ hơn 10 (ví dụ: Số 5 thay vì Số 05) */
+  // Nhóm lỗi thể thức cơ bản
   MISSING_LEADING_ZERO_NUMBER = "MISSING_LEADING_ZERO_NUMBER",
-
-  /** Quên số 0 ở ngày nhỏ hơn 10 hoặc tháng 1, tháng 2 */
   MISSING_LEADING_ZERO_DATE = "MISSING_LEADING_ZERO_DATE",
-
-  /** Dùng phím Space hoặc Tab ở đầu đoạn thay vì dùng thụt lề chuẩn (10mm) */
+  EXCESS_LEADING_ZERO_DATE = "EXCESS_LEADING_ZERO_DATE",
+  INVALID_DATE_VALUE = "INVALID_DATE_VALUE",
   SPACE_OR_TAB_INDENTATION = "SPACE_OR_TAB_INDENTATION",
-
-  /** Phông chữ khác Times New Roman */
   NON_STANDARD_FONT = "NON_STANDARD_FONT",
-
-  /** Sai kích thước lề giấy (Top/Bottom 20mm, Left 30mm, Right 15mm) */
   INVALID_MARGIN = "INVALID_MARGIN",
-
-  /** Đoạn văn bản không được căn đều 2 bên (Justified) */
   INVALID_ALIGNMENT = "INVALID_ALIGNMENT",
-
-  /** Thụt lề dòng đầu khác 10 mm (~28.35 pt) */
   INVALID_FIRST_LINE_INDENT = "INVALID_FIRST_LINE_INDENT",
-
-  /** Giãn dòng nằm ngoài khoảng quy định 18 pt - 22 pt */
   INVALID_LINE_SPACING = "INVALID_LINE_SPACING",
-
-  /** Giãn đoạn sai quy chuẩn (Space After < 6 pt hoặc Space Before > 0 pt) */
   INVALID_PARAGRAPH_SPACING = "INVALID_PARAGRAPH_SPACING",
+  HEADER_FOOTER_STYLE_ERROR = "HEADER_FOOTER_STYLE_ERROR",
+
+  // Nhóm lỗi logic diện rộng & đối chiếu chéo
+  INVALID_DOC_CODE_FORMAT = "INVALID_DOC_CODE_FORMAT",
+  DOC_TYPE_CODE_MISMATCH = "DOC_TYPE_CODE_MISMATCH",
+  AUTHORITY_SIGNATURE_MISMATCH = "AUTHORITY_SIGNATURE_MISMATCH",
+  INVALID_SIGN_PREFIX = "INVALID_SIGN_PREFIX",
+  HEADING_SEQUENCE_ERROR = "HEADING_SEQUENCE_ERROR",
+  RECIPIENTS_FORMAT_ERROR = "RECIPIENTS_FORMAT_ERROR",
+  UNFILLED_PLACEHOLDER = "UNFILLED_PLACEHOLDER",
+  TYPOGRAPHY_PUNCTUATION_ERROR = "TYPOGRAPHY_PUNCTUATION_ERROR",
 }
 
-/** Cấu trúc dữ liệu đầu vào cho Ô 1 và Ô 2 (Header Table) */
-export interface HeaderData {
-  /** Cơ quan cấp trên (nếu có), e.g. "BAN CHẤP HÀNH TRUNG ƯƠNG" hoặc "TỈNH ỦY NGHỆ AN" */
-  superiorOrgan?: string;
-
-  /** Cơ quan, đơn vị ban hành văn bản, e.g. "VĂN PHÒNG" hoặc "BAN TỔ CHỨC" */
-  issuingOrgan: string;
-
-  /** Số văn bản (hỗ trợ số nguyên hoặc chuỗi số). Tự động bổ sung số 0 nếu < 10 */
-  docNumber: number | string;
-
-  /** Ký hiệu văn bản, e.g. "HD/VPTW", "QĐ/TU", "CT/TW" */
-  docCode: string;
-
-  /** Địa danh ban hành văn bản, e.g. "Hà Nội", "Nghệ An", "TP. Hồ Chí Minh" */
-  location: string;
-
-  /** Ngày tháng năm ban hành văn bản (chấp nhận Date, object hoặc chuỗi text) */
-  date: Date | { day: number; month: number; year: number } | string;
-
-  /** Cỡ chữ cho bảng Header (13 pt hoặc 14 pt, mặc định 13 pt) */
-  fontSize?: 13 | 14;
+/** Các phân vùng cấu trúc chính của một văn bản Đảng */
+export enum DocumentZone {
+  HEADER = "HEADER",
+  TITLE = "TITLE",
+  SALUTATION = "SALUTATION",
+  LEGAL_BASIS = "LEGAL_BASIS",
+  BODY = "BODY",
+  FOOTER = "FOOTER",
 }
 
-/** Cấu trúc dữ liệu đầu vào cho Ô Nơi nhận & Ô Chữ ký (Signature Table) */
-export interface SignData {
-  /** Danh sách thành phần nhận văn bản (các gạch đầu dòng) */
-  recipients: string[];
+/** Vai trò ngữ nghĩa chi tiết của từng đoạn văn (Paragraph Role) */
+export enum ParagraphRole {
+  EMPTY = "EMPTY",
 
-  /**
-   * Thẩm quyền/chức vụ người ký dòng 1:
-   * Ví dụ: "T/M BAN BÍ THƯ", "T/M BAN THƯỜNG VỤ", "CHÁNH VĂN PHÒNG"
-   */
-  signTitle: string;
+  // Vùng HEADER (Ô 1 & Ô 2)
+  HEADER_SUPERIOR_ORGAN = "HEADER_SUPERIOR_ORGAN",
+  HEADER_ISSUING_ORGAN = "HEADER_ISSUING_ORGAN",
+  HEADER_PARTY_MOTTO = "HEADER_PARTY_MOTTO",
+  HEADER_SEPARATOR_LINE = "HEADER_SEPARATOR_LINE",
+  HEADER_DOC_NUMBER = "HEADER_DOC_NUMBER",
+  HEADER_DATE_LOCATION = "HEADER_DATE_LOCATION",
+  HEADER_RAW_COMBINED = "HEADER_RAW_COMBINED",
 
-  /**
-   * Chức danh cụ thể dòng 2 (nếu dòng 1 là thay mặt tập thể):
-   * Ví dụ: "BÍ THƯ", "PHÓ BÍ THƯ", "PHÓ CHÁNH VĂN PHÒNG"
-   */
-  signerRole?: string;
+  // Vùng TITLE & MỞ ĐẦU
+  DOC_TYPE = "DOC_TYPE",
+  DOC_SUMMARY = "DOC_SUMMARY",
+  CV_SUMMARY = "CV_SUMMARY",
+  TITLE_SEPARATOR_LINE = "TITLE_SEPARATOR_LINE",
+  SALUTATION_LINE = "SALUTATION_LINE",
+  LEGAL_BASIS_LINE = "LEGAL_BASIS_LINE",
+  DECISION_VERB = "DECISION_VERB",
 
-  /** Họ và tên đầy đủ của người ký */
-  signerName: string;
+  // Vùng BODY (Nội dung & Cây đề mục)
+  HEADING_PART = "HEADING_PART",
+  HEADING_ROMAN = "HEADING_ROMAN",
+  HEADING_NUMBER = "HEADING_NUMBER",
+  HEADING_SUBNUMBER = "HEADING_SUBNUMBER",
+  HEADING_LETTER = "HEADING_LETTER",
+  ARTICLE_HEADING = "ARTICLE_HEADING",
+  LIST_ITEM = "LIST_ITEM",
+  BODY_PARAGRAPH = "BODY_PARAGRAPH",
+  DATA_TABLE_CELL = "DATA_TABLE_CELL",
+  END_MARKER = "END_MARKER",
 
-  /** Khoảng trống để ký tên và đóng dấu (tính bằng mm, từ 35-40 mm, mặc định 38 mm) */
-  signatureSpaceMm?: number;
-
-  /** Cỡ chữ cho bảng chân trang (13 pt hoặc 14 pt, mặc định 13 pt cho chữ ký) */
-  fontSize?: 13 | 14;
+  // Vùng FOOTER (Nơi nhận & Chữ ký)
+  RECIPIENT_HEADER = "RECIPIENT_HEADER",
+  RECIPIENT_ITEM = "RECIPIENT_ITEM",
+  SIGN_AUTHORITY = "SIGN_AUTHORITY",
+  SIGN_ROLE = "SIGN_ROLE",
+  SIGN_NAME = "SIGN_NAME",
 }
 
-/** Cấu hình tùy chọn khi định dạng nội dung văn bản */
-export interface FormatBodyOptions {
-  /** Cỡ chữ nội dung (14 pt hoặc 13 pt, mặc định 14 pt) */
-  fontSize?: number;
-
-  /** Giãn dòng cố định (Exactly, mặc định 18 pt) */
+/** Thông tin thô của một đoạn văn đọc từ Word hoặc truyền từ Unit Test */
+export interface RawParagraphNode {
+  index: number;
+  text: string;
+  tableNestingLevel: number;
+  alignment?: string;
+  firstLineIndent?: number;
   lineSpacing?: number;
-
-  /** Khoảng cách dưới đoạn (Space After, mặc định 6 pt) */
-  spaceAfter?: number;
-
-  /** Khoảng cách trên đoạn (Space Before, mặc định 0 pt) */
   spaceBefore?: number;
+  spaceAfter?: number;
+  fontName?: string;
+  fontSize?: number;
+  fontBold?: boolean;
+  fontItalic?: boolean;
+  fontColor?: string;
+}
 
-  /** Thụt lề dòng đầu (mm, mặc định 10 mm) */
+/** Nút đoạn văn sau khi đã được bộ Parser phân vùng và gán nhãn */
+export interface ParsedParagraphNode extends RawParagraphNode {
+  zone: DocumentZone;
+  role: ParagraphRole;
+  headingMeta?: {
+    level: "PART" | "ROMAN" | "NUMBER" | "SUBNUMBER" | "LETTER" | "ARTICLE";
+    rawIndex: string;
+    numericValue: number;
+    separator?: string;
+  };
+}
+
+/** Dữ liệu bóc tách từ vùng Header (Ô 1 & Ô 2) */
+export interface ExtractedHeaderInfo {
+  hasHeaderTable: boolean;
+  superiorOrgan?: string;
+  issuingOrgan?: string;
+  issuingOrganParagraphIndex?: number;
+  partyMottoParagraphIndex?: number;
+  docNumberRaw?: string;
+  docNumberParagraphIndex?: number;
+  docNumber?: string;
+  docTypeAbbr?: string;
+  docOrgAbbr?: string;
+  dateLocationRaw?: string;
+  dateParagraphIndex?: number;
+  location?: string;
+  dayRaw?: string;
+  monthRaw?: string;
+  yearRaw?: string;
+}
+
+/** Dữ liệu bóc tách từ vùng Footer (Nơi nhận & Chữ ký) */
+export interface ExtractedFooterInfo {
+  hasSignatureTable: boolean;
+  recipientHeaderIndex?: number;
+  recipientItems: { index: number; text: string }[];
+  signAuthority?: string;
+  signAuthorityIndex?: number;
+  signRole?: string;
+  signRoleIndex?: number;
+  signerName?: string;
+  signerNameIndex?: number;
+}
+
+/** Cấu trúc AST toàn bộ tài liệu sau khi phân tích */
+export interface ParsedDocument {
+  nodes: ParsedParagraphNode[];
+  header: ExtractedHeaderInfo;
+  docTypeTitle?: string;
+  docTypeParagraphIndex?: number;
+  docSummary?: string;
+  hasDecisionVerb: boolean;
+  footer: ExtractedFooterInfo;
+}
+
+export interface HeaderData {
+  superiorOrgan?: string;
+  issuingOrgan: string;
+  docNumber: number | string;
+  docCode: string;
+  location: string;
+  date: Date | { day: number; month: number; year: number } | string;
+  fontSize?: 13 | 14;
+}
+
+export interface SignData {
+  recipients: string[];
+  signTitle: string;
+  signerRole?: string;
+  signerName: string;
+  signatureSpaceMm?: number;
+  fontSize?: 13 | 14;
+}
+
+export interface FormatBodyOptions {
+  fontSize?: number;
+  lineSpacing?: number;
+  spaceAfter?: number;
+  spaceBefore?: number;
   firstLineIndentMm?: number;
-
-  /** Bỏ qua định dạng thụt lề đối với các tiêu đề căn giữa (như QUYẾT ĐỊNH, KẾ HOẠCH) */
   preserveCenteredHeadings?: boolean;
 }
 
-/** Cấu hình tùy chọn khi thiết lập trang */
 export interface PageSetupOptions {
-  /** Chiều rộng lề trên (mm, mặc định 20) */
   topMarginMm?: number;
-
-  /** Chiều rộng lề dưới (mm, mặc định 20) */
   bottomMarginMm?: number;
-
-  /** Chiều rộng lề trái (mm, mặc định 30) */
   leftMarginMm?: number;
-
-  /** Chiều rộng lề phải (mm, mặc định 15) */
   rightMarginMm?: number;
-
-  /** Bật in 2 mặt đối xứng (mặc định true) */
   mirrorMargins?: boolean;
-
-  /** Không hiển thị số trang và header ở trang đầu tiên (mặc định true) */
   differentFirstPageHeaderFooter?: boolean;
-
-  /** Khoảng cách header so với mép trên (mm, mặc định 10) */
   headerDistanceMm?: number;
 }
 
-/** Chi tiết của một lỗi thể thức phát hiện được */
 export interface LintIssue {
-  /** Mã định danh duy nhất cho vấn đề */
   id: string;
-
-  /** Phân loại lỗi */
   type: LintIssueType;
-
-  /** Mức độ nghiêm trọng */
   severity: LintSeverity;
-
-  /** Thông báo lỗi chi tiết */
   message: string;
-
-  /** Hướng dẫn sửa đúng theo 05-HD/VPTW */
   suggestion: string;
-
-  /** Vị trí phát hiện (chỉ số đoạn paragraph hoặc thông tin section) */
   locationInfo?: string;
-
-  /** Trích đoạn văn bản có lỗi */
   snippet?: string;
+  /** Chỉ số đoạn văn trong Word để click nhảy thẳng tới vị trí lỗi */
+  paragraphIndex?: number;
 }
 
-/** Báo cáo kết quả quét thể thức văn bản */
 export interface LintReport {
-  /** Tài liệu có hợp lệ hoàn toàn không (không có lỗi ERROR) */
   isValid: boolean;
-
-  /** Tổng số vấn đề phát hiện */
   totalIssues: number;
-
-  /** Số lỗi nghiêm trọng */
   errorCount: number;
-
-  /** Số cảnh báo */
   warningCount: number;
-
-  /** Số thông tin nhắc nhở */
   infoCount: number;
-
-  /** Danh sách chi tiết các lỗi */
   issues: LintIssue[];
-
-  /** Thời điểm thực hiện quét */
   timestamp: string;
 }

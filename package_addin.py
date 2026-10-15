@@ -86,39 +86,66 @@ CUSTOM_UI_EXCEL_XML = """<customUI xmlns="http://schemas.microsoft.com/office/20
 """
 
 def inject_ribbon(file_path, custom_ui_content):
-    """Nhúng customUI14.xml vào file OpenXML (.dotm hoặc .xlam)"""
+    """Nhúng cả customUI.xml (2006) và customUI14.xml (2009) + đảm bảo [Content_Types].xml hợp lệ trên Windows"""
     tmp_file = file_path + ".tmp"
+    custom_ui_2006 = custom_ui_content.replace(
+        "http://schemas.microsoft.com/office/2009/07/customui",
+        "http://schemas.microsoft.com/office/2006/01/customui"
+    )
+
     with zipfile.ZipFile(file_path, "r") as zin:
+        # 1. Cập nhật _rels/.rels
         rels_xml = zin.read("_rels/.rels").decode("utf-8")
         ET.register_namespace("", "http://schemas.openxmlformats.org/package/2006/relationships")
         root = ET.fromstring(rels_xml)
-        
         ns = "{http://schemas.openxmlformats.org/package/2006/relationships}"
-        has_rel = False
-        for rel in root.findall(f"{ns}Relationship"):
-            if "customui" in rel.attrib.get("Target", "").lower():
-                has_rel = True
-                break
-                
-        if not has_rel:
-            rel_elem = ET.Element(f"{ns}Relationship", {
-                "Id": "rIdCustomUI14",
-                "Type": "http://schemas.microsoft.com/office/2007/relationships/ui/extensibility",
-                "Target": "customUI/customUI14.xml"
-            })
-            root.append(rel_elem)
-            updated_rels = ET.tostring(root, encoding="utf-8", xml_declaration=True)
-        else:
-            updated_rels = rels_xml.encode("utf-8")
 
+        # Xóa các relationship customUI cũ nếu có để tránh trùng ID
+        for rel in list(root.findall(f"{ns}Relationship")):
+            if "customui" in rel.attrib.get("Target", "").lower():
+                root.remove(rel)
+
+        # Thêm cả chuẩn 2006 (customUI.xml) và 2007+ (customUI14.xml)
+        root.append(ET.Element(f"{ns}Relationship", {
+            "Id": "rIdCustomUI",
+            "Type": "http://schemas.microsoft.com/office/2006/relationships/ui/extensibility",
+            "Target": "customUI/customUI.xml"
+        }))
+        root.append(ET.Element(f"{ns}Relationship", {
+            "Id": "rIdCustomUI14",
+            "Type": "http://schemas.microsoft.com/office/2007/relationships/ui/extensibility",
+            "Target": "customUI/customUI14.xml"
+        }))
+        updated_rels = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+
+        # 2. Đảm bảo [Content_Types].xml có khai báo Extension="xml"
+        ct_xml = zin.read("[Content_Types].xml").decode("utf-8")
+        ET.register_namespace("", "http://schemas.openxmlformats.org/package/2006/content-types")
+        ct_root = ET.fromstring(ct_xml)
+        ct_ns = "{http://schemas.openxmlformats.org/package/2006/content-types}"
+        has_xml_ext = any(
+            el.attrib.get("Extension", "").lower() == "xml"
+            for el in ct_root.findall(f"{ct_ns}Default")
+        )
+        if not has_xml_ext:
+            ct_root.insert(0, ET.Element(f"{ct_ns}Default", {
+                "Extension": "xml",
+                "ContentType": "application/xml"
+            }))
+        updated_ct = ET.tostring(ct_root, encoding="utf-8", xml_declaration=True)
+
+        # 3. Ghi toàn bộ ra file nén OpenXML mới
         with zipfile.ZipFile(tmp_file, "w", zipfile.ZIP_DEFLATED) as zout:
             for item in zin.infolist():
                 if item.filename == "_rels/.rels":
                     zout.writestr(item, updated_rels)
-                elif item.filename == "customUI/customUI14.xml":
+                elif item.filename == "[Content_Types].xml":
+                    zout.writestr(item, updated_ct)
+                elif item.filename.startswith("customUI/"):
                     continue
                 else:
                     zout.writestr(item, zin.read(item.filename))
+            zout.writestr("customUI/customUI.xml", custom_ui_2006.encode("utf-8"))
             zout.writestr("customUI/customUI14.xml", custom_ui_content.encode("utf-8"))
 
     os.replace(tmp_file, file_path)

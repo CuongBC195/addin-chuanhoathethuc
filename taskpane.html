@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chuẩn Hóa Văn Bản Đảng (05-HD/VPTW)</title>
+  <!-- Office.js SDK -->
+  <script type="text/javascript" src="https://appsforoffice.microsoft.com/lib/1.1/hosted/office.js"></script>
+  <link rel="stylesheet" href="./src/taskpane.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="logo-area">
+      <div class="emblem">☭</div>
+      <div>
+        <h1 class="title">Văn Bản Đảng</h1>
+        <p class="subtitle">Chuẩn Hóa Thể Thức 05-HD/VPTW</p>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- Nút 1 Click Toàn Diện -->
+    <section class="action-card primary-card">
+      <button id="btn-standardize-all" class="btn btn-primary">
+        <span class="btn-icon">⚡</span>
+        <span class="btn-text">Chuẩn Hóa Toàn Diện (1 Chạm)</span>
+      </button>
+      <p class="card-hint">Tự động cấu hình khổ giấy A4, căn lề 4 hướng, mirror margins, font Times New Roman, justify, thụt lề 10mm và line spacing 18pt.</p>
+    </section>
+
+    <!-- Nhóm Chức Năng Thành Phần -->
+    <section class="section-group">
+      <h2 class="section-title">Chức Năng Từng Bước</h2>
+      
+      <div class="button-grid">
+        <button id="btn-page-setup" class="btn btn-secondary">
+          <span class="btn-icon">📐</span>
+          <span>Khổ Giấy & Lề A4</span>
+        </button>
+
+        <button id="btn-format-body" class="btn btn-secondary">
+          <span class="btn-icon">✍️</span>
+          <span>Nội Dung (Body)</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- Bảng Header & Chữ ký -->
+    <section class="section-group">
+      <h2 class="section-title">Chèn Bố Cục Thể Thức</h2>
+      
+      <div class="accordion">
+        <details class="accordion-item" open>
+          <summary class="accordion-header">🏛️ Tiêu Đề Văn Bản (Ô 1 & Ô 2)</summary>
+          <div class="accordion-content">
+            <div class="form-group">
+              <label>Cấp trên trực tiếp (nếu có):</label>
+              <input type="text" id="inp-superior" placeholder="VD: TỈNH ỦY NGHỆ AN">
+            </div>
+            <div class="form-group">
+              <label>Cơ quan ban hành:</label>
+              <input type="text" id="inp-issuing" placeholder="VD: VĂN PHÒNG" value="VĂN PHÒNG">
+            </div>
+            <div class="form-row">
+              <div class="form-group col-half">
+                <label>Số văn bản:</label>
+                <input type="number" id="inp-doc-num" placeholder="VD: 5" value="5">
+              </div>
+              <div class="form-group col-half">
+                <label>Ký hiệu:</label>
+                <input type="text" id="inp-doc-code" placeholder="VD: HD/VPTW" value="HD/VPTW">
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Địa danh:</label>
+              <input type="text" id="inp-location" placeholder="VD: Hà Nội" value="Hà Nội">
+            </div>
+            <button id="btn-insert-header" class="btn btn-action">Chèn Header</button>
+          </div>
+        </details>
+
+        <details class="accordion-item">
+          <summary class="accordion-header">🖋️ Nơi Nhận & Chữ Ký</summary>
+          <div class="accordion-content">
+            <div class="form-group">
+              <label>Nơi nhận (mỗi dòng 1 đơn vị):</label>
+              <textarea id="inp-recipients" rows="3" placeholder="- Như Điều 3;&#10;- Ban Thường vụ;&#10;- Lưu: VT.">- Như Điều 3;&#10;- Lưu: VT, TH.</textarea>
+            </div>
+            <div class="form-group">
+              <label>Thẩm quyền ký:</label>
+              <input type="text" id="inp-sign-title" placeholder="VD: T/M BAN THƯỜNG VỤ" value="T/M BAN THƯỜNG VỤ">
+            </div>
+            <div class="form-group">
+              <label>Chức danh cụ thể (dòng 2 nếu có):</label>
+              <input type="text" id="inp-sign-role" placeholder="VD: PHÓ BÍ THƯ" value="PHÓ BÍ THƯ">
+            </div>
+            <div class="form-group">
+              <label>Họ và tên người ký:</label>
+              <input type="text" id="inp-sign-name" placeholder="VD: Nguyễn Văn A" value="Nguyễn Văn A">
+            </div>
+            <button id="btn-insert-signature" class="btn btn-action">Chèn Chân Trang</button>
+          </div>
+        </details>
+      </div>
+    </section>
+
+    <!-- Quét Lỗi Thể Thức (Lint) -->
+    <section class="section-group">
+      <div class="lint-header">
+        <h2 class="section-title">Kiểm Tra Thể Thức (Lint)</h2>
+        <button id="btn-lint" class="btn btn-lint">
+          <span>🔍 Quét Lỗi</span>
+        </button>
+      </div>
+      
+      <div id="lint-result-container" class="lint-results">
+        <p class="empty-state">Bấm <strong>"Quét Lỗi"</strong> để kiểm tra xem tài liệu có vi phạm lỗi thể thức theo Hướng dẫn 05-HD/VPTW không.</p>
+      </div>
+    </section>
+
+    <!-- Status Toast -->
+    <div id="status-toast" class="toast hidden"></div>
+  </main>
+
+  <script type="module" src="./src/taskpane.ts"></script>
+</body>
+</html>

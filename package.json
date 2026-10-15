@@ -1,0 +1,28 @@
+{
+  "name": "doc-party-addin",
+  "version": "1.0.0",
+  "description": "Word Web Add-in chuẩn hóa thể thức văn bản Đảng theo Hướng dẫn số 05-HD/VPTW",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "tsc test/unit.test.ts --target ES2022 --module CommonJS --moduleResolution node --outDir dist-test && node dist-test/test/unit.test.js"
+  },
+  "keywords": [
+    "office-js",
+    "word-add-in",
+    "dang-cong-san-viet-nam",
+    "05-hd-vptw",
+    "van-ban-dang"
+  ],
+  "author": "Antigravity",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^26.6.4",
+    "@types/office-js": "^1.0.461",
+    "@vitejs/plugin-basic-ssl": "^2.3.0",
+    "typescript": "^5.4.5",
+    "vite": "^8.3.2"
+  }
+}

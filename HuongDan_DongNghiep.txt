@@ -1,0 +1,56 @@
+================================================================================
+          HƯỚNG DẪN CÀI ĐẶT & SỬ DỤNG BỘ ADD-IN VĂN PHÒNG ĐẢNG
+               (Áp dụng chuẩn theo Hướng dẫn 05-HD/VPTW)
+                    Created by VPĐU xã Thạnh Phú
+================================================================================
+
+1. BỘ CÔNG CỤ GỒM CÓ:
+--------------------------------------------------------------------------------
+- ChuanHoa_VanBanDang.dotm : Tệp Add-in dành cho Microsoft Word (có Ribbon riêng).
+- ChuanHoa_Excel.xlam       : Tệp Add-in dành cho Microsoft Excel (tự căn trang in A4).
+- CaiDat_AddIn_Windows.bat : Tệp bấm 1-Click để cài tự động cho cả Word & Excel trên Windows.
+- GoCaiDat_Windows.bat     : Tệp bấm 1-Click để gỡ cài đặt (khi không dùng nữa).
+- CaiDat_AddIn_Mac.sh      : Tệp cài đặt dành riêng cho máy macOS (MacBook / iMac).
+
+2. CÁCH CÀI ĐẶT DÀNH CHO ĐỒNG NGHIỆP (CỰC KỲ ĐƠN GIẢN):
+--------------------------------------------------------------------------------
+Bước 1: Giải nén tệp zip "Bo_Cai_Dat_AddIn_VanBanDang.zip".
+Bước 2: Đảm bảo Microsoft Word và Excel đang đóng (tắt Word & Excel).
+Bước 3: 
+  - Trên Windows: Nhấp đúp chuột vào tệp "CaiDat_AddIn_Windows.bat".
+  - Trên Mac: Mở Terminal, kéo tệp "CaiDat_AddIn_Mac.sh" vào và nhấn Enter.
+Bước 4: Màn hình báo "CÀI ĐẶT THÀNH CÔNG 100%!" là xong!
+
+* LƯU Ý VỀ KÍCH HOẠT BẢN QUYỀN (1 LẦN DUY NHẤT):
+- Ở lần đầu tiên sử dụng (trên Word hoặc Excel), chương trình sẽ hiện hộp thoại yêu cầu nhập "Mã kích hoạt bản quyền".
+- Nhập mã kích hoạt do Văn phòng Đảng ủy xã Thạnh Phú cấp.
+- Mỗi máy tính CHỈ CẦN NHẬP 1 LẦN DUY NHẤT, từ các lần sau và trên cả hai ứng dụng Word/Excel sẽ tự động mở khóa vĩnh viễn.
+
+3. CÁCH SỬ DỤNG TRÊN MICROSOFT WORD:
+--------------------------------------------------------------------------------
+1. Mở bất kỳ văn bản Word nào (Nghị quyết, Quyết định, Kế hoạch, Công văn...).
+2. Nhìn lên thanh công cụ (Ribbon) sẽ thấy xuất hiện thẻ mới:
+   -> [VĂN BẢN ĐẢNG]
+3. Bấm vào nút:
+   -> [Chuẩn Hóa Thể Thức] (biểu tượng dấu tích xanh).
+4. Văn bản tự động được chuẩn hóa toàn diện trong 1 giây:
+   - Font Times New Roman 15pt, tiêu đề 16pt đậm, trích yếu 15pt đậm.
+   - Dòng phân cách in đậm, giãn cách chuẩn xác.
+   - Thụt đầu dòng 1.27 cm, giãn đoạn 6pt, giãn dòng Single.
+   - Header, Kính gửi, Nơi nhận và 4 dòng Enter khoảng cách ký tên chuẩn 100%.
+
+4. CÁCH SỬ DỤNG TRÊN MICROSOFT EXCEL:
+--------------------------------------------------------------------------------
+1. Mở bất kỳ bảng tính Excel nào cần in ấn (Phụ lục, Bảng biểu thống kê...).
+2. Nhìn lên thanh công cụ (Ribbon) sẽ thấy xuất hiện thẻ mới:
+   -> [CHUẨN HÓA IN] (hoặc nhóm "IN ẤN A4" ngay tại thẻ Trang đầu/Home).
+3. Bấm vào nút:
+   -> [Chuẩn Hóa Trang In].
+3. Bảng tính tự động được căn chỉnh hoàn hảo:
+   - Không bao giờ bị che mất chữ (kể cả ô gộp dòng / gộp cột Merged Cells).
+   - Tự động xoay khổ giấy A4 Ngang (Landscape), vừa khít 1 trang ngang.
+   - Xóa bỏ các ngắt trang rác thừa nửa trang dưới, chữ to rõ nét và dễ đọc.
+
+================================================================================
+                    VĂN PHÒNG ĐẢNG ỦY XÃ THẠNH PHÚ
+================================================================================

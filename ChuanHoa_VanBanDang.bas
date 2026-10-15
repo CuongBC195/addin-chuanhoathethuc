@@ -1554,6 +1554,7 @@ Private Function ToAscii(ByVal s As String) As String
     ToAscii = res
 End Function
 
+
 '-----------------------------------------------------------------------
 ' HÀM NHẬN DIỆN TÊN LOẠI VĂN BẢN ĐẢNG (KHỚP CHÍNH XÁC, KHÔNG BẮT NHẦM THÂN BÀI)
 '-----------------------------------------------------------------------

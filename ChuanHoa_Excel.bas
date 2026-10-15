@@ -8,7 +8,7 @@
 ' - Thiết lập trang in A4 Ngang (Landscape), vừa khít 1 trang ngang, chữ to rõ
 '===========================================================================
 
-Public Sub RibbonChuanHoaExcel(control As IRibbonControl)
+Public Sub RibbonChuanHoaExcel(control As Object)
     Call ChuanHoa_TrangIn_Excel
 End Sub
 

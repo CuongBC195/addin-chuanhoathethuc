@@ -3,7 +3,7 @@
 ' (Bản nâng cấp triệt tiêu lỗi ToAscii, bảo toàn in đậm cục bộ & rà soát 10 nhóm Logic)
 '===========================================================================
 
-Public Sub RibbonChuanHoa(control As IRibbonControl)
+Public Sub RibbonChuanHoa(control As Object)
     Call ChuanHoa_VanBanDang
 End Sub
 

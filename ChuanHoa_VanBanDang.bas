@@ -604,8 +604,8 @@ NextCellHeader:
                             pNoiNhan.Range.Font.Underline = wdUnderlineNone
                             pNoiNhan.Range.Font.Bold = False
                             pNoiNhan.Range.Font.Italic = False
-                            pNoiNhan.Format.LeftIndent = CentimetersToPoints(0.5)
-                            pNoiNhan.Format.FirstLineIndent = CentimetersToPoints(-0.5)
+                            pNoiNhan.Format.LeftIndent = 0
+                            pNoiNhan.Format.FirstLineIndent = 0
                             
                             Dim firstChar As String
                             firstChar = Left(pTextNN, 1)
@@ -1091,23 +1091,48 @@ Private Function ChuanHoa_SoKyHieu(ByVal sRaw As String) As String
             codePart = Trim(Mid(rest, slashPos + 1, dashPos - slashPos - 1))
             orgPart = Trim(Mid(rest, dashPos + 1))
             
-            If IsNumeric(numPart) And Val(numPart) < 10 And Val(numPart) > 0 And Len(numPart) = 1 Then
-                numPart = "0" & numPart
+            Dim cleanNum As String
+            cleanNum = Replace(Replace(numPart, ".", ""), ChrW(8230), "")
+            cleanNum = Trim(cleanNum)
+            If Len(cleanNum) = 0 Or Not IsNumeric(cleanNum) Then
+                ' Trường hợp xin số văn bản: để trống 3 space trước dấu gạch ngang
+                s = "S" & ChrW(7889) & "   -" & UCase(codePart) & "/" & UCase(orgPart)
+            Else
+                If Val(cleanNum) < 10 And Val(cleanNum) > 0 And Len(cleanNum) = 1 Then
+                    cleanNum = "0" & cleanNum
+                End If
+                s = "S" & ChrW(7889) & " " & cleanNum & "-" & UCase(codePart) & "/" & UCase(orgPart)
             End If
-            s = prefix & numPart & "-" & UCase(codePart) & "/" & UCase(orgPart)
         ElseIf dashPos > 0 And slashPos > dashPos Then
             numPart = Trim(Left(rest, dashPos - 1))
             codePart = Trim(Mid(rest, dashPos + 1, slashPos - dashPos - 1))
             orgPart = Trim(Mid(rest, slashPos + 1))
             
-            If IsNumeric(numPart) And Val(numPart) < 10 And Val(numPart) > 0 And Len(numPart) = 1 Then
-                numPart = "0" & numPart
+            Dim cleanNum2 As String
+            cleanNum2 = Replace(Replace(numPart, ".", ""), ChrW(8230), "")
+            cleanNum2 = Trim(cleanNum2)
+            If Len(cleanNum2) = 0 Or Not IsNumeric(cleanNum2) Then
+                ' Trường hợp xin số văn bản: để trống 3 space trước dấu gạch ngang
+                s = "S" & ChrW(7889) & "   -" & UCase(codePart) & "/" & UCase(orgPart)
+            Else
+                If Val(cleanNum2) < 10 And Val(cleanNum2) > 0 And Len(cleanNum2) = 1 Then
+                    cleanNum2 = "0" & cleanNum2
+                End If
+                s = "S" & ChrW(7889) & " " & cleanNum2 & "-" & UCase(codePart) & "/" & UCase(orgPart)
             End If
-            s = prefix & numPart & "-" & UCase(codePart) & "/" & UCase(orgPart)
         ElseIf dashPos > 0 Then
             numPart = Trim(Left(rest, dashPos - 1))
-            If IsNumeric(numPart) And Val(numPart) < 10 And Val(numPart) > 0 And Len(numPart) = 1 Then
-                s = prefix & "0" & rest
+            Dim cleanNum3 As String
+            cleanNum3 = Replace(Replace(numPart, ".", ""), ChrW(8230), "")
+            cleanNum3 = Trim(cleanNum3)
+            If Len(cleanNum3) = 0 Or Not IsNumeric(cleanNum3) Then
+                s = "S" & ChrW(7889) & "   -" & Mid(rest, dashPos + 1)
+            Else
+                If Val(cleanNum3) < 10 And Val(cleanNum3) > 0 And Len(cleanNum3) = 1 Then
+                    s = "S" & ChrW(7889) & " 0" & rest
+                Else
+                    s = "S" & ChrW(7889) & " " & rest
+                End If
             End If
         End If
     End If
@@ -1133,26 +1158,44 @@ Private Function ChuanHoa_NgayThang(ByVal sRaw As String) As String
         monthPart = Trim(Mid(s, pThang + 5, pNam - (pThang + 5)))
         yearPart = Trim(Mid(s, pNam + 3))
         
-        If IsNumeric(dayPart) Then
-            Dim dVal As Long: dVal = Val(dayPart)
-            If dVal < 10 And dVal > 0 And Len(dayPart) = 1 Then dayPart = "0" & dayPart
+        Dim cleanDay As String
+        cleanDay = Replace(Replace(dayPart, ".", ""), ChrW(8230), "")
+        cleanDay = Trim(cleanDay)
+        
+        Dim dayText As String
+        If Len(cleanDay) = 0 Or Not IsNumeric(cleanDay) Then
+            dayText = "   "
+        Else
+            Dim dVal As Long: dVal = Val(cleanDay)
+            If dVal < 10 And dVal > 0 And Len(cleanDay) = 1 Then
+                cleanDay = "0" & cleanDay
+            End If
+            dayText = " " & cleanDay & " "
         End If
         
-        If IsNumeric(monthPart) Then
-            Dim mVal As Long: mVal = Val(monthPart)
-            If (mVal = 1 Or mVal = 2) And Len(monthPart) = 1 Then
-                monthPart = "0" & monthPart
-            ElseIf mVal >= 3 And mVal <= 9 And Len(monthPart) > 1 And Left(monthPart, 1) = "0" Then
-                monthPart = CStr(mVal)
+        Dim cleanMonth As String
+        cleanMonth = Replace(Replace(monthPart, ".", ""), ChrW(8230), "")
+        cleanMonth = Trim(cleanMonth)
+        
+        Dim monthText As String
+        If Len(cleanMonth) = 0 Or Not IsNumeric(cleanMonth) Then
+            monthText = "   "
+        Else
+            Dim mVal As Long: mVal = Val(cleanMonth)
+            If (mVal = 1 Or mVal = 2) And Len(cleanMonth) = 1 Then
+                cleanMonth = "0" & cleanMonth
+            ElseIf mVal >= 3 And mVal <= 9 And Len(cleanMonth) > 1 And Left(cleanMonth, 1) = "0" Then
+                cleanMonth = CStr(mVal)
             End If
+            monthText = " " & cleanMonth & " "
         End If
         
         Dim strNgay As String, strThang As String, strNam As String
-        strNgay = "ng" & ChrW(224) & "y "
-        strThang = " th" & ChrW(225) & "ng "
-        strNam = " n" & ChrW(259) & "m "
+        strNgay = "ng" & ChrW(224) & "y"
+        strThang = "th" & ChrW(225) & "ng"
+        strNam = "n" & ChrW(259) & "m"
         
-        s = locPart & strNgay & dayPart & strThang & monthPart & strNam & yearPart
+        s = locPart & strNgay & dayText & strThang & monthText & strNam & " " & yearPart
     End If
     
     ChuanHoa_NgayThang = s
@@ -1376,7 +1419,7 @@ NextParaCheck:
         
         If Len(foundNumVal) = 0 Or Not IsNumeric(foundNumVal) Then
             warnCount = warnCount + 1
-            warnings = warnings & vbCrLf & warnCount & ". [Số văn bản] Chưa điền số thứ tự văn bản ('" & foundSoRaw & "')."
+            warnings = warnings & vbCrLf & warnCount & ". [Số văn bản] Đang để trống 3 khoảng trắng ('" & foundSoRaw & "') chờ văn thư cấp số."
         End If
     Else
         warnCount = warnCount + 1
@@ -1399,7 +1442,7 @@ NextParaCheck:
             
             If Not IsNumeric(sDay) Or Not IsNumeric(sMonth) Then
                 warnCount = warnCount + 1
-                warnings = warnings & vbCrLf & warnCount & ". [Ngày tháng] Chưa điền đầy đủ ngày hoặc tháng ban hành ('" & foundDateRaw & "')."
+                warnings = warnings & vbCrLf & warnCount & ". [Ngày tháng] Đang để trống ngày/tháng ban hành ('" & foundDateRaw & "') chờ ngày ký duyệt."
             Else
                 Dim dInt As Integer, mInt As Integer, yInt As Integer
                 dInt = Val(sDay): mInt = Val(sMonth): yInt = Val(sYear)

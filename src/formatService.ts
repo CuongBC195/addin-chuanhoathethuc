@@ -45,6 +45,9 @@ export function formatDocNumber(num: number | string): string {
   if (!isNaN(parsed) && parsed < 10 && parsed > 0 && !trimmed.startsWith("0")) {
     return `0${parsed}`;
   }
+  if (!trimmed || trimmed === "..." || trimmed === "…") {
+    return "   ";
+  }
   return trimmed;
 }
 
@@ -76,6 +79,15 @@ export function formatPartyDate(
     formattedText = formattedText.replace(
       /tháng\s+0([3-9])\s+năm/i,
       "tháng $1 năm"
+    );
+    // Nếu để trống ngày / tháng khi xin số: tự động để khoảng trống 3 space
+    formattedText = formattedText.replace(
+      /ngày(?:\s*|\s*\.{2,}\s*|\s*…\s*)tháng/i,
+      "ngày   tháng"
+    );
+    formattedText = formattedText.replace(
+      /tháng(?:\s*|\s*\.{2,}\s*|\s*…\s*)năm/i,
+      "tháng   năm"
     );
     if (
       cleanLocation &&

@@ -28,6 +28,7 @@ assert(Math.abs(ptToMm(PAGE_SETUP_CONSTANTS.MARGIN_LEFT_PT) - 30) < 0.001, "ptTo
 
 // 2. Kiểm thử chuẩn hóa số văn bản & ngày tháng (bao gồm cả xóa số 0 thừa ở tháng 3..9)
 assert(formatDocNumber(5) === "05", "Số 5 -> '05'");
+assert(formatDocNumber("") === "   ", "Xin số để trống -> '   '");
 const date1 = formatPartyDate("Hà Nội", { day: 5, month: 2, year: 2026 });
 assert(date1 === "Hà Nội, ngày 05 tháng 02 năm 2026", `Ngày 5 tháng 2 -> '${date1}'`);
 
@@ -35,6 +36,12 @@ const rawDateExcessZero = formatPartyDate("Thạnh Phú", "ngày 5 tháng 08 nă
 assert(
   rawDateExcessZero === "Thạnh Phú, ngày 05 tháng 8 năm 2026",
   `Tự động thêm số 0 cho ngày 5 và xóa số 0 thừa ở tháng 08 -> '${rawDateExcessZero}'`
+);
+
+const rawDateXinNgay = formatPartyDate("Thạnh Phú", "ngày ... tháng ... năm 2026");
+assert(
+  rawDateXinNgay === "Thạnh Phú, ngày   tháng   năm 2026",
+  `Xin ngày tháng tự động để 3 khoảng trắng -> '${rawDateXinNgay}'`
 );
 
 // 3. Kiểm thử AST Parser & Bộ Rà Soát Logic diện rộng trên một văn bản mẫu có gài nhiều lỗi logic

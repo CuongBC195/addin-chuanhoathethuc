@@ -1,8 +1,8 @@
 '===========================================================================
-' MACRO CHUẨN HÓA VĂN BẢN ĐẢNG THEO HD 05-HD/VPTW (Cập nhật thực tế)
+' MACRO CHUẨN HÓA & RÀ SOÁT LOGIC VĂN BẢN ĐẢNG THEO HD 05-HD/VPTW
+' (Bản nâng cấp triệt tiêu lỗi ToAscii, bảo toàn in đậm cục bộ & rà soát 10 nhóm Logic)
 '===========================================================================
 
-' Entry point khi bấm nút từ thanh công cụ Ribbon của Word
 Public Sub RibbonChuanHoa(control As IRibbonControl)
     Call ChuanHoa_VanBanDang
 End Sub
@@ -17,12 +17,8 @@ Sub ChuanHoa_VanBanDang()
     '-----------------------------------------------------------------------
     ' BƯỚC 0: DỌN RÁC (Shift+Enter, Dòng trắng thừa, Đánh số tự động)
     '-----------------------------------------------------------------------
-    
-    ' 0.1 Đóng băng toàn bộ Đánh số tự động (Auto Numbering) thành Text tĩnh
-    ' Điều này giúp ép lề 1.27cm thành công 100% không bị Word chèn ép
     doc.ConvertNumbersToText
     
-    ' 0.2 Đổi Shift+Enter thành Enter chuẩn
     With doc.Content.Find
         .ClearFormatting
         .Replacement.ClearFormatting
@@ -36,12 +32,6 @@ Sub ChuanHoa_VanBanDang()
         .Execute Replace:=wdReplaceAll
     End With
     
-    With doc.Content.Find
-        .Text = "^p "
-        .Replacement.Text = "^p"
-        .Execute Replace:=wdReplaceAll
-    End With
-    
     Dim i As Integer
     For i = 1 To 5
         With doc.Content.Find
@@ -49,15 +39,6 @@ Sub ChuanHoa_VanBanDang()
             .Replacement.Text = "^p"
             .Execute Replace:=wdReplaceAll
         End With
-    Next i
-    
-    With doc.Content.Find
-        .Text = "^p^t"
-        .Replacement.Text = "^p"
-        .Execute Replace:=wdReplaceAll
-    End With
-    
-    For i = 1 To 3
         With doc.Content.Find
             .Text = "^p^t"
             .Replacement.Text = "^p"
@@ -65,29 +46,24 @@ Sub ChuanHoa_VanBanDang()
         End With
     Next i
     
-    ' Xóa các dòng trắng thừa ngoài bảng (không xóa dòng trống trong bảng như ô Chữ ký)
-    Dim pBlank As Paragraph
-    Dim prevBlank As Boolean
-    prevBlank = False
-    For Each pBlank In doc.Paragraphs
-        If Not pBlank.Range.Information(wdWithInTable) Then
-            Dim sB As String
-            sB = Trim(Replace(Replace(Replace(pBlank.Range.Text, vbCr, ""), vbLf, ""), Chr(7), ""))
-            If Len(sB) = 0 Then
-                If prevBlank Then
-                    On Error Resume Next
-                    pBlank.Range.Delete
-                    On Error GoTo 0
-                Else
-                    prevBlank = True
-                End If
-            Else
-                prevBlank = False
+    ' Xóa các dòng trắng thừa liên tiếp ngoài bảng (Duyệt ngược từ dưới lên để không bị nhảy cóc)
+    Dim pIdx As Long
+    For pIdx = doc.Paragraphs.Count To 2 Step -1
+        Dim pCur As Paragraph, pPrev As Paragraph
+        Set pCur = doc.Paragraphs(pIdx)
+        Set pPrev = doc.Paragraphs(pIdx - 1)
+        
+        If Not pCur.Range.Information(wdWithInTable) And Not pPrev.Range.Information(wdWithInTable) Then
+            Dim sCur As String, sPrev As String
+            sCur = CleanParaText(pCur.Range.Text)
+            sPrev = CleanParaText(pPrev.Range.Text)
+            If Len(sCur) = 0 And Len(sPrev) = 0 Then
+                On Error Resume Next
+                pCur.Range.Delete
+                On Error GoTo 0
             End If
-        Else
-            prevBlank = False
         End If
-    Next pBlank
+    Next pIdx
     
     ' Xóa nhiều dấu cách liên tiếp
     For i = 1 To 5
@@ -99,7 +75,7 @@ Sub ChuanHoa_VanBanDang()
     Next i
     
     '-----------------------------------------------------------------------
-    ' BƯỚC 1: CẤU HÌNH TRANG IN
+    ' BƯỚC 1: CẤU HÌNH TRANG IN A4 CHUẨN 05-HD/VPTW
     '-----------------------------------------------------------------------
     With doc.PageSetup
         .PaperSize = wdPaperA4
@@ -115,7 +91,7 @@ Sub ChuanHoa_VanBanDang()
     End With
     
     '-----------------------------------------------------------------------
-    ' BƯỚC 2: SỐ TRANG
+    ' BƯỚC 2: ĐÁNH SỐ TRANG ĐỈNH GIỮA (TRỪ TRANG 1)
     '-----------------------------------------------------------------------
     Dim sec As Section
     For Each sec In doc.Sections
@@ -139,7 +115,6 @@ Sub ChuanHoa_VanBanDang()
     '-----------------------------------------------------------------------
     ' BƯỚC 3: DÒ BẮT VÀ CHUẨN HÓA BẢNG HEADER (TIÊU NGỮ / CƠ QUAN)
     '-----------------------------------------------------------------------
-    ' Tự động căn vừa cửa sổ trang in (AutoFit Window) cho toàn bộ bảng trong tài liệu
     Dim tFit As Table
     For Each tFit In doc.Tables
         On Error Resume Next
@@ -149,33 +124,31 @@ Sub ChuanHoa_VanBanDang()
     Next tFit
     
     Dim tbl As Table
+    Dim tblCounter As Integer
+    tblCounter = 0
     Dim c As Cell
     Dim pCell As Paragraph
     Dim pDCS As Paragraph
     Dim cRight As Cell
-    Dim foundHeaderTable As Boolean
-    foundHeaderTable = False
     
     For Each tbl In doc.Tables
+        tblCounter = tblCounter + 1
         Dim tAsc As String
         tAsc = ToAscii(tbl.Range.Text)
         
-        ' Bảng Header: Luôn là bảng đầu tiên của tài liệu HOẶC chứa các từ khóa tiêu ngữ/cơ quan
         Dim isHeaderTbl As Boolean
         isHeaderTbl = False
         
-        If tbl Is doc.Tables(1) Then
+        If tblCounter = 1 And (InStr(1, tAsc, "DANG CONG SAN") > 0 Or InStr(1, tAsc, "VIET NAM") > 0 Or InStr(1, tAsc, "DANG BO") > 0 Or InStr(1, tAsc, "DANG UY") > 0 Or InStr(1, tAsc, "CHI BO") > 0) Then
             isHeaderTbl = True
-        ElseIf InStr(1, tAsc, "DANG CONG SAN") > 0 Or InStr(1, tAsc, "VIET NAM") > 0 Or InStr(1, tAsc, "DANG BO") > 0 Or InStr(1, tAsc, "DANG UY") > 0 Or InStr(1, tAsc, "CHI BO") > 0 Then
+        ElseIf InStr(1, tAsc, "DANG CONG SAN VIET NAM") > 0 Then
             isHeaderTbl = True
         End If
         
         If isHeaderTbl Then
-            foundHeaderTable = True
             Set pDCS = Nothing
             Set cRight = Nothing
             
-            ' Tắt viền bảng (Borders None) để chuẩn theo quy định bảng ẩn viền
             On Error Resume Next
             tbl.Borders.Enable = False
             On Error GoTo 0
@@ -185,7 +158,6 @@ Sub ChuanHoa_VanBanDang()
             
             Dim cellIdx As Integer
             cellIdx = 1
-            
             Dim leftColCqIdx As Integer
             leftColCqIdx = 1
             Dim leftColInTrichYeu As Boolean
@@ -193,17 +165,12 @@ Sub ChuanHoa_VanBanDang()
             
             For Each c In tbl.Range.Cells
                 Dim cellTextRaw As String
-                cellTextRaw = Trim(Replace(Replace(Replace(c.Range.Text, vbCr, ""), Chr(7), ""), vbLf, ""))
-                
-                ' Bỏ qua ô rỗng (ví dụ cột giữa hẹp dùng làm khoảng cách chia 2 bên)
-                If Len(cellTextRaw) = 0 Then
-                    GoTo NextCellHeader
-                End If
+                cellTextRaw = CleanParaText(c.Range.Text)
+                If Len(cellTextRaw) = 0 Then GoTo NextCellHeader
                 
                 Dim cAsc As String
                 cAsc = ToAscii(c.Range.Text)
                 
-                ' Bỏ qua ô Kính gửi và ô phòng ban nếu nằm trong bảng Header (để Bước 3.2 chuyên biệt xử lý)
                 If InStr(1, cAsc, "KINH GUI") > 0 Or Left(cellTextRaw, 1) = "-" Then
                     GoTo NextCellHeader
                 End If
@@ -211,14 +178,13 @@ Sub ChuanHoa_VanBanDang()
                 Dim isRightCell As Boolean
                 isRightCell = False
                 
-                ' Nhận diện ô phải: Chứa tiêu ngữ (DANG CONG SAN / VIET NAM), hoặc ngày tháng, hoặc là ô cuối cùng
                 If InStr(1, cAsc, "DANG CONG SAN") > 0 Or InStr(1, cAsc, "VIET NAM") > 0 Then
                     isRightCell = True
                     Set cRight = c
                 ElseIf InStr(1, cAsc, "NGAY") > 0 And InStr(1, cAsc, "THANG") > 0 And InStr(1, cAsc, "NAM") > 0 Then
                     isRightCell = True
                     If cRight Is Nothing Then Set cRight = c
-                ElseIf cellIdx = totalCells Then
+                ElseIf cellIdx = totalCells And totalCells >= 2 Then
                     isRightCell = True
                     If cRight Is Nothing Then Set cRight = c
                 Else
@@ -229,26 +195,19 @@ Sub ChuanHoa_VanBanDang()
                     On Error GoTo 0
                 End If
                 
-                ' Reset chuẩn ô: xóa viền ẩn và màu nền
                 On Error Resume Next
                 c.Borders.Enable = False
                 c.Shading.BackgroundPatternColor = wdColorAutomatic
                 c.Shading.Texture = wdTextureNone
                 On Error GoTo 0
                 
-                Dim lineIndex As Integer
-                lineIndex = 1
-                
                 For Each pCell In c.Range.Paragraphs
-                    ' Xóa khoảng trắng/tab thừa ở đầu dòng để căn lề và lấy tọa độ chính xác tuyệt đối
                     Do While pCell.Range.Characters.Count > 1 And (pCell.Range.Characters(1).Text = " " Or pCell.Range.Characters(1).Text = vbTab)
                         pCell.Range.Characters(1).Delete
                     Loop
                     
                     Dim pAsc As String
-                    pAsc = ToAscii(pCell.Range.Text)
-                    pAsc = Trim(pAsc)
-                    
+                    pAsc = Trim(ToAscii(pCell.Range.Text))
                     If Len(pAsc) = 0 Then GoTo SkipEmptyLineHeader
                     
                     With pCell.Format
@@ -260,7 +219,7 @@ Sub ChuanHoa_VanBanDang()
                         .SpaceBeforeAuto = False
                         .SpaceAfterAuto = False
                         .LineSpacingRule = wdLineSpaceSingle
-                        .DisableLineHeightGrid = True ' Tắt Snap to Grid
+                        .DisableLineHeightGrid = True
                     End With
                     
                     pCell.Range.Font.Name = "Times New Roman"
@@ -268,11 +227,9 @@ Sub ChuanHoa_VanBanDang()
                     pCell.Range.Font.Underline = wdUnderlineNone
                     
                     If isRightCell Then
-                        ' --- CỘT BÊN PHẢI (TIÊU NGỮ & NGÀY THÁNG): CĂN SÁT PHẢI ---
                         pCell.Format.Alignment = wdAlignParagraphRight
                         
                         If InStr(1, pAsc, "DANG CONG SAN") > 0 Or InStr(1, pAsc, "VIET NAM") > 0 Then
-                            ' Dòng ĐẢNG CỘNG SẢN VIỆT NAM -> In hoa, Đậm, cỡ 15, căn sát phải
                             pCell.Range.Case = wdUpperCase
                             pCell.Range.Font.Size = 15
                             pCell.Range.Font.Bold = True
@@ -280,38 +237,30 @@ Sub ChuanHoa_VanBanDang()
                             pCell.Format.SpaceAfter = 4
                             Set pDCS = pCell
                         ElseIf InStr(1, pAsc, "NGAY") > 0 And InStr(1, pAsc, "THANG") > 0 Then
-                            ' Dòng ngày tháng -> In thường, Nghiêng, không đậm, cỡ 14, căn sát phải
+                            Dim origNgay As String, fixNgay As String
+                            origNgay = CleanParaText(pCell.Range.Text)
+                            fixNgay = ChuanHoa_NgayThang(origNgay)
+                            If fixNgay <> origNgay And Len(fixNgay) > 0 Then
+                                Call SafeSetParagraphText(doc, pCell, fixNgay)
+                            End If
+                            pCell.Format.Alignment = wdAlignParagraphRight
+                            pCell.Range.Font.Name = "Times New Roman"
                             pCell.Range.Font.Size = 14
                             pCell.Range.Font.Bold = False
                             pCell.Range.Font.Italic = True
                             pCell.Format.SpaceBefore = 0
                             pCell.Format.SpaceAfter = 0
-                            ' Tự động thêm số 0 cho ngày < 10, tháng 1-2, bỏ số 0 thừa ở tháng 3-9
-                            Dim origNgay As String, fixNgay As String
-                            origNgay = Trim(Replace(Replace(pCell.Range.Text, vbCr, ""), Chr(7), ""))
-                            fixNgay = ChuanHoa_NgayThang(origNgay)
-                            If fixNgay <> origNgay And Len(fixNgay) > 0 Then
-                                pCell.Range.Text = fixNgay & vbCr
-                                pCell.Format.Alignment = wdAlignParagraphRight
-                                pCell.Range.Font.Name = "Times New Roman"
-                                pCell.Range.Font.Size = 14
-                                pCell.Range.Font.Bold = False
-                                pCell.Range.Font.Italic = True
-                            End If
                         Else
                             pCell.Range.Font.Size = 14
                             pCell.Range.Font.Bold = False
                             pCell.Range.Font.Italic = False
                         End If
                     Else
-                        ' --- CỘT BÊN TRÁI (CƠ QUAN BAN HÀNH, SỐ VĂN BẢN, TRÍCH YẾU V/V) ---
-                        ' Bắt đầu dòng Trích yếu công văn (V/v...)
-                        If InStr(1, pAsc, "V/V") > 0 Or InStr(1, pAsc, "V V") > 0 Or pAsc Like "V/V*" Or pAsc Like "V.V*" Or pAsc Like "VV*" Then
+                        If pAsc Like "V/V*" Or pAsc Like "V.V*" Or pAsc Like "VE VIEC*" Then
                             leftColInTrichYeu = True
                         End If
                         
                         If leftColInTrichYeu Then
-                            ' Dòng Trích yếu V/v... -> Size 12, In nghiêng, không đậm, căn giữa
                             pCell.Format.Alignment = wdAlignParagraphCenter
                             pCell.Range.Font.Size = 12
                             pCell.Range.Font.Bold = False
@@ -320,39 +269,30 @@ Sub ChuanHoa_VanBanDang()
                             pCell.Format.SpaceAfter = 0
                             pCell.Format.LineSpacingRule = wdLineSpaceSingle
                         Else
-                            ' Cột bên trái thông thường -> Cỡ chữ 14, căn giữa
                             pCell.Format.Alignment = wdAlignParagraphCenter
                             pCell.Range.Font.Size = 14
                             
-                            If pAsc = "*" Or pAsc = "***" Then
-                                ' Dấu sao -> Thường, căn giữa
+                            If pAsc = "*" Or pAsc = "***" Or IsSeparatorLine(pAsc) Then
                                 pCell.Range.Font.Bold = False
                                 pCell.Range.Font.Italic = False
-                            ElseIf pAsc Like "SO*" Then
-                                ' Dòng Số: ... -> Thường, đứng, căn giữa
-                                pCell.Range.Font.Bold = False
-                                pCell.Range.Font.Italic = False
-                                ' Tự động sửa lỗi số kiểu hành chính NĐ 30 sang chuẩn Đảng 05-HD/VPTW
+                            ElseIf pAsc Like "SO *" Or pAsc Like "SO:*" Or pAsc Like "SO-*" Then
                                 Dim origSo As String, fixSo As String
-                                origSo = Trim(Replace(Replace(pCell.Range.Text, vbCr, ""), Chr(7), ""))
+                                origSo = CleanParaText(pCell.Range.Text)
                                 fixSo = ChuanHoa_SoKyHieu(origSo)
                                 If fixSo <> origSo And Len(fixSo) > 0 Then
-                                    pCell.Range.Text = fixSo & vbCr
-                                    pCell.Format.Alignment = wdAlignParagraphCenter
-                                    pCell.Range.Font.Name = "Times New Roman"
-                                    pCell.Range.Font.Size = 14
-                                    pCell.Range.Font.Bold = False
-                                    pCell.Range.Font.Italic = False
+                                    Call SafeSetParagraphText(doc, pCell, fixSo)
                                 End If
+                                pCell.Format.Alignment = wdAlignParagraphCenter
+                                pCell.Range.Font.Name = "Times New Roman"
+                                pCell.Range.Font.Size = 14
+                                pCell.Range.Font.Bold = False
+                                pCell.Range.Font.Italic = False
                             Else
-                                ' Tên cơ quan
                                 If leftColCqIdx = 1 Then
-                                    ' Cơ quan cấp trên (ĐẢNG BỘ THÀNH PHỐ) -> In hoa, Thường (không đậm)
                                     pCell.Range.Case = wdUpperCase
                                     pCell.Range.Font.Bold = False
                                     pCell.Range.Font.Italic = False
                                 ElseIf leftColCqIdx = 2 Then
-                                    ' Cơ quan ban hành (ĐẢNG ỦY XÃ / CHI BỘ / VĂN PHÒNG) -> In hoa, Đậm
                                     pCell.Range.Case = wdUpperCase
                                     pCell.Range.Font.Bold = True
                                     pCell.Range.Font.Italic = False
@@ -364,17 +304,23 @@ Sub ChuanHoa_VanBanDang()
                             End If
                         End If
                     End If
-                    
-                    lineIndex = lineIndex + 1
 SkipEmptyLineHeader:
                 Next pCell
 NextCellHeader:
                 cellIdx = cellIdx + 1
             Next c
             
+            ' Nếu Ô 1 chỉ có đúng 1 dòng tên cơ quan (không có cấp trên) -> Bắt buộc IN ĐẬM dòng đó
+            If leftColCqIdx = 2 Then
+                On Error Resume Next
+                Dim firstLeftP As Paragraph
+                Set firstLeftP = tbl.Range.Cells(1).Range.Paragraphs(1)
+                firstLeftP.Range.Font.Bold = True
+                On Error GoTo 0
+            End If
+            
             ' --- TỰ ĐỘNG CHÈN SHAPE LINE DƯỚI "ĐẢNG CỘNG SẢN VIỆT NAM" ---
             If Not (pDCS Is Nothing) Then
-                ' 1. Xóa TẤT CẢ đường kẻ / Shape cũ ở khu vực đầu trang (tránh nhân bản khi chạy nhiều lần)
                 Dim sIdx As Long
                 For sIdx = doc.Shapes.Count To 1 Step -1
                     Dim sItem As Shape
@@ -386,31 +332,9 @@ NextCellHeader:
                     If Not sItem Is Nothing Then
                         Dim shouldDel As Boolean
                         shouldDel = False
-                        
-                        ' A. Đã từng được đặt tên LineTieuNguDang
-                        If StrComp(sItem.Name, "LineTieuNguDang", vbTextCompare) = 0 Then
-                            shouldDel = True
-                        End If
-                        
-                        ' B. Nằm trong bảng Header
+                        If StrComp(sItem.Name, "LineTieuNguDang", vbTextCompare) = 0 Then shouldDel = True
                         On Error Resume Next
                         If sItem.Anchor.InRange(tbl.Range) Then shouldDel = True
-                        On Error GoTo 0
-                        
-                        ' C. Đường kẻ ngang hoặc Shape có tên liên quan ở nửa trên trang 1 (Top < 250 pt)
-                        Dim sNameLower As String
-                        sNameLower = LCase(sItem.Name)
-                        If InStr(sNameLower, "line") > 0 Or InStr(sNameLower, "thang") > 0 Or _
-                           InStr(sNameLower, "thẳng") > 0 Or InStr(sNameLower, "straight") > 0 Or _
-                           InStr(sNameLower, "connector") > 0 Or InStr(sNameLower, "shape") > 0 Then
-                            On Error Resume Next
-                            If sItem.Top < 250 Then shouldDel = True
-                            If sItem.Anchor.Information(wdVerticalPositionRelativeToPage) < 250 Then shouldDel = True
-                            On Error GoTo 0
-                        End If
-                        
-                        ' D. Bất kỳ Shape nào có chiều cao nét mỏng (< 5 pt) ở đầu trang 1
-                        On Error Resume Next
                         If sItem.Height < 5 And sItem.Top < 250 Then shouldDel = True
                         If (sItem.Type = 9 Or sItem.Type = 1) And sItem.Top < 250 Then shouldDel = True
                         On Error GoTo 0
@@ -423,7 +347,6 @@ NextCellHeader:
                     End If
                 Next sIdx
                 
-                ' Xóa các InlineShapes trong bảng Header nếu có
                 Dim iShp As InlineShape
                 For Each iShp In tbl.Range.InlineShapes
                     On Error Resume Next
@@ -431,13 +354,11 @@ NextCellHeader:
                     On Error GoTo 0
                 Next iShp
                 
-                ' Xóa gạch chân hoặc viền dưới đoạn tiêu ngữ nếu có
                 pDCS.Range.Font.Underline = wdUnderlineNone
                 On Error Resume Next
                 pDCS.Borders(wdBorderBottom).LineStyle = wdLineStyleNone
                 On Error GoTo 0
                 
-                ' 2. Tính toán vị trí lề phải chuẩn xác của ô chứa ĐẢNG CỘNG SẢN VIỆT NAM
                 Dim cRightCell As Cell
                 Set cRightCell = Nothing
                 On Error Resume Next
@@ -445,11 +366,8 @@ NextCellHeader:
                 On Error GoTo 0
                 If cRightCell Is Nothing Then Set cRightCell = cRight
                 
-                Dim rPad As Single
-                rPad = 5.4
-                Dim cellW As Single
-                cellW = 248
-                
+                Dim rPad As Single: rPad = 5.4
+                Dim cellW As Single: cellW = 248
                 If Not (cRightCell Is Nothing) Then
                     cellW = cRightCell.Width
                     On Error Resume Next
@@ -457,16 +375,10 @@ NextCellHeader:
                     On Error GoTo 0
                 End If
                 
-                ' Chiều dài đường kẻ = 190 pt
-                Dim lineWidth As Single
-                lineWidth = 190
-                
-                ' Đẩy sang trái 5.5 pt để cân đối hoàn hảo dưới chữ ĐẢNG CỘNG SẢN VIỆT NAM (không bị lệch phải)
-                Dim lPos As Single
-                lPos = cellW - lineWidth - rPad - 5.5
+                Dim lineWidth As Single: lineWidth = 190
+                Dim lPos As Single: lPos = cellW - lineWidth - rPad - 5.5
                 If lPos < 0 Then lPos = 0
                 
-                ' 3. Tạo Shape Line mới (Insert > Shapes > Line)
                 On Error Resume Next
                 Dim newL As Shape
                 Set newL = doc.Shapes.AddLine(lPos, 16.5, lPos + lineWidth, 16.5, pDCS.Range)
@@ -478,27 +390,24 @@ NextCellHeader:
                     .Top = 16.5
                     .Line.Weight = 0.75
                     .Line.ForeColor.RGB = RGB(0, 0, 0)
-                    .Line.DashStyle = 1 ' 1 = msoLineSolid
-                    .WrapFormat.Type = 3 ' 3 = wdWrapNone
+                    .Line.DashStyle = 1
+                    .WrapFormat.Type = 3
                 End With
                 On Error GoTo 0
             End If
             
-            Exit For ' Đã hoàn thành chuẩn hóa bảng Header đầu tiên
+            Exit For
         End If
     Next tbl
     
     '-----------------------------------------------------------------------
-    ' BƯỚC 3.2: DÒ BẮT VÀ CHUẨN HÓA BẢNG KÍNH GỬI (CÔNG VĂN - HD 36-HD/VPTW)
-    ' "kính gửi in nghiêng nằm trong table sát lề phải, liệt kê các phòng ban thì sát lề trái"
+    ' BƯỚC 3.2: DÒ BẮT VÀ CHUẨN HÓA BẢNG KÍNH GỬI (CÔNG VĂN)
     '-----------------------------------------------------------------------
     For Each tbl In doc.Tables
         Dim tAscKG As String
         tAscKG = ToAscii(tbl.Range.Text)
         
-        ' Bắt bảng Kính gửi: chứa KINH GUI, không phải Footer (không chứa NOI NHAN, BI THU)
-        If InStr(1, tAscKG, "KINH GUI") > 0 And InStr(1, tAscKG, "NOI NHAN") = 0 And InStr(1, tAscKG, "BI THU") = 0 Then
-            ' Tắt viền bảng (Borders None)
+        If InStr(1, tAscKG, "KINH GUI") > 0 And InStr(1, tAscKG, "NOI NHAN") = 0 Then
             On Error Resume Next
             tbl.Borders.Enable = False
             On Error GoTo 0
@@ -506,13 +415,12 @@ NextCellHeader:
             Dim cKG As Cell
             For Each cKG In tbl.Range.Cells
                 Dim cellTxtKG As String
-                cellTxtKG = Trim(Replace(Replace(Replace(cKG.Range.Text, vbCr, ""), Chr(7), ""), vbLf, ""))
+                cellTxtKG = CleanParaText(cKG.Range.Text)
                 
                 If Len(cellTxtKG) > 0 Then
                     Dim cAscKG As String
                     cAscKG = ToAscii(cKG.Range.Text)
                     
-                    ' Reset chuẩn ô: xóa viền và nền
                     On Error Resume Next
                     cKG.Borders.Enable = False
                     cKG.Shading.BackgroundPatternColor = wdColorAutomatic
@@ -521,14 +429,12 @@ NextCellHeader:
                     
                     Dim isKGOther As Boolean
                     isKGOther = False
-                    ' Nếu là ô tiêu ngữ hoặc cơ quan ở bảng 1 gộp thì bỏ qua
                     If InStr(1, cAscKG, "DANG CONG SAN") > 0 Or InStr(1, cAscKG, "DANG UY") > 0 Or InStr(1, cAscKG, "DANG BO") > 0 Then
                         isKGOther = True
                     End If
                     
                     If Not isKGOther Then
                         If InStr(1, cAscKG, "KINH GUI") > 0 Then
-                            ' --- Ô KÍNH GỬI: CĂN SÁT LỀ PHẢI, IN NGHIÊNG, SIZE 14 ---
                             Dim pKGLeft As Paragraph
                             For Each pKGLeft In cKG.Range.Paragraphs
                                 Do While pKGLeft.Range.Characters.Count > 1 And (pKGLeft.Range.Characters(1).Text = " " Or pKGLeft.Range.Characters(1).Text = vbTab)
@@ -539,7 +445,7 @@ NextCellHeader:
                                 pAscLKG = Trim(ToAscii(pKGLeft.Range.Text))
                                 If Len(pAscLKG) > 0 Then
                                     With pKGLeft.Format
-                                        .Alignment = wdAlignParagraphRight ' SÁT LỀ PHẢI Ô
+                                        .Alignment = wdAlignParagraphRight
                                         .LeftIndent = 0
                                         .RightIndent = 0
                                         .FirstLineIndent = 0
@@ -553,40 +459,30 @@ NextCellHeader:
                                     pKGLeft.Range.Font.Name = "Times New Roman"
                                     pKGLeft.Range.Font.Size = 14
                                     pKGLeft.Range.Font.Bold = False
-                                    pKGLeft.Range.Font.Italic = True ' IN NGHIÊNG
+                                    pKGLeft.Range.Font.Italic = True
                                     pKGLeft.Range.Font.ColorIndex = wdBlack
                                     pKGLeft.Range.Font.Underline = wdUnderlineNone
                                 End If
                             Next pKGLeft
                         Else
-                            ' --- Ô LIỆT KÊ PHÒNG BAN: CĂN SÁT LỀ TRÁI, ĐỨNG THƯỜNG, SIZE 14 ---
-                            ' 1. Tìm vị trí dòng liệt kê có nội dung cuối cùng
-                            Dim lastLineKG As Integer
-                            lastLineKG = 0
-                            Dim counterKG As Integer
-                            counterKG = 1
+                            Dim lastLineKG As Integer: lastLineKG = 0
+                            Dim counterKG As Integer: counterKG = 1
                             Dim tPkg As Paragraph
                             For Each tPkg In cKG.Range.Paragraphs
-                                Dim sPkg As String
-                                sPkg = Trim(Replace(Replace(Replace(tPkg.Range.Text, Chr(7), ""), vbCr, ""), vbLf, ""))
-                                If Len(sPkg) > 0 Then lastLineKG = counterKG
+                                If Len(CleanParaText(tPkg.Range.Text)) > 0 Then lastLineKG = counterKG
                                 counterKG = counterKG + 1
                             Next tPkg
                             
-                            ' 2. Định dạng từng dòng
                             Dim pKGRight As Paragraph
-                            Dim lineKGIdx As Integer
-                            lineKGIdx = 1
+                            Dim lineKGIdx As Integer: lineKGIdx = 1
                             For Each pKGRight In cKG.Range.Paragraphs
                                 Do While pKGRight.Range.Characters.Count > 1 And (pKGRight.Range.Characters(1).Text = " " Or pKGRight.Range.Characters(1).Text = vbTab)
                                     pKGRight.Range.Characters(1).Delete
                                 Loop
                                 
-                                Dim pAscRKG As String
-                                pAscRKG = Trim(ToAscii(pKGRight.Range.Text))
-                                If Len(pAscRKG) > 0 Then
+                                If Len(CleanParaText(pKGRight.Range.Text)) > 0 Then
                                     With pKGRight.Format
-                                        .Alignment = wdAlignParagraphLeft ' SÁT LỀ TRÁI Ô
+                                        .Alignment = wdAlignParagraphLeft
                                         .LeftIndent = 0
                                         .RightIndent = 0
                                         .FirstLineIndent = 0
@@ -600,53 +496,11 @@ NextCellHeader:
                                     pKGRight.Range.Font.Name = "Times New Roman"
                                     pKGRight.Range.Font.Size = 14
                                     pKGRight.Range.Font.Bold = False
-                                    pKGRight.Range.Font.Italic = False ' ĐỨNG THƯỜNG
+                                    pKGRight.Range.Font.Italic = False
                                     pKGRight.Range.Font.ColorIndex = wdBlack
                                     pKGRight.Range.Font.Underline = wdUnderlineNone
                                     
-                                    ' 3. Chuẩn hóa dấu cuối dòng: triệt tiêu 100% lặp ".."
-                                    On Error Resume Next
-                                    Dim rngLineKG As Range
-                                    Set rngLineKG = pKGRight.Range
-                                    
-                                    ' Thu hẹp bỏ qua các ký tự ngắt đoạn / ngắt ô
-                                    Do While rngLineKG.End > rngLineKG.Start
-                                        Dim cCodeKG As Long
-                                        cCodeKG = AscW(Right(rngLineKG.Text, 1))
-                                        If cCodeKG < 0 Then cCodeKG = cCodeKG + 65536
-                                        If cCodeKG = 13 Or cCodeKG = 10 Or cCodeKG = 7 Then
-                                            rngLineKG.End = rngLineKG.End - 1
-                                        Else
-                                            Exit Do
-                                        End If
-                                    Loop
-                                    
-                                    ' Ghi nhận vị trí cuối chuỗi hiển thị
-                                    Dim rngEndPosKG As Long
-                                    rngEndPosKG = rngLineKG.End
-                                    
-                                    ' Thu hẹp tiếp bỏ qua mọi dấu chấm, chấm phẩy, phẩy, khoảng trắng ở đuôi
-                                    Do While rngLineKG.End > rngLineKG.Start
-                                        Dim endChCodeKG As Long
-                                        endChCodeKG = AscW(Right(rngLineKG.Text, 1))
-                                        If endChCodeKG < 0 Then endChCodeKG = endChCodeKG + 65536
-                                        If endChCodeKG = 32 Or endChCodeKG = 160 Or endChCodeKG = 9 Or endChCodeKG = 46 Or endChCodeKG = 59 Or endChCodeKG = 44 Then
-                                            rngLineKG.End = rngLineKG.End - 1
-                                        Else
-                                            Exit Do
-                                        End If
-                                    Loop
-                                    
-                                    ' Vùng dấu ở đuôi
-                                    Dim rngTailKG As Range
-                                    Set rngTailKG = doc.Range(rngLineKG.End, rngEndPosKG)
-                                    
-                                    If lineKGIdx = lastLineKG Then
-                                        rngTailKG.Text = "."
-                                    Else
-                                        rngTailKG.Text = ";"
-                                    End If
-                                    On Error GoTo 0
+                                    Call NormalizeLineEndingPunctuation(doc, pKGRight, (lineKGIdx = lastLineKG))
                                 End If
                                 lineKGIdx = lineKGIdx + 1
                             Next pKGRight
@@ -658,53 +512,62 @@ NextCellHeader:
     Next tbl
     
     '-----------------------------------------------------------------------
-    ' BƯỚC 3.5: DÒ BẮT BẢNG NƠI NHẬN & CHỮ KÝ
+    ' BƯỚC 3.5: DÒ BẮT BẢNG NƠI NHẬN & CHỮ KÝ (PHÂN BIỆT CHÍNH XÁC 2 CỘT)
     '-----------------------------------------------------------------------
     For Each tbl In doc.Tables
         Dim tAscFooter As String
         tAscFooter = ToAscii(tbl.Range.Text)
         
-        If InStr(1, tAscFooter, "NOI NHAN") > 0 Or InStr(1, tAscFooter, "T/M") > 0 Or InStr(1, tAscFooter, "TM.") > 0 Or InStr(1, tAscFooter, "BI THU") > 0 Then
-            ' Đã bắt được bảng phần Footer!
+        If InStr(1, tAscFooter, "NOI NHAN") > 0 Or InStr(1, tAscFooter, "T/M") > 0 Or InStr(1, tAscFooter, "TM.") > 0 Or InStr(1, tAscFooter, "K/T") > 0 Or InStr(1, tAscFooter, "KT.") > 0 Or InStr(1, tAscFooter, "BI THU") > 0 Or InStr(1, tAscFooter, "CHANH VAN PHONG") > 0 Or InStr(1, tAscFooter, "TRUONG BAN") > 0 Then
+            ' Không xử lý nhầm bảng Header nếu bảng Header có từ "DANG CONG SAN"
+            If InStr(1, tAscFooter, "DANG CONG SAN") > 0 Then GoTo NextTableFooter
+            
+            On Error Resume Next
+            tbl.Borders.Enable = False
+            On Error GoTo 0
+            
+            Dim fCellIdx As Integer: fCellIdx = 1
+            Dim fTotalCells As Integer: fTotalCells = tbl.Range.Cells.Count
+            
             For Each c In tbl.Range.Cells
                 Dim cAscFooter As String
-                cAscFooter = ToAscii(c.Range.Text)
+                cAscFooter = Trim(ToAscii(c.Range.Text))
+                If Len(cAscFooter) = 0 Then GoTo NextFooterCell
                 
-                ' Phân loại xem ô này là Nơi nhận hay Chữ ký
+                ' Nhận diện chính xác: Nếu ô có chữ "NOI NHAN:" -> Chắc chắn 100% là Cột Nơi nhận!
+                ' Ngược lại nếu không có "NOI NHAN:" và nằm ở cột phải / chứa chức danh ký -> Là Cột Chữ ký!
                 Dim isSignatureCell As Boolean
                 isSignatureCell = False
-                If InStr(1, cAscFooter, "T/M") > 0 Or InStr(1, cAscFooter, "TM.") > 0 Or InStr(1, cAscFooter, "BI THU") > 0 Then
+                
+                If InStr(1, cAscFooter, "NOI NHAN") > 0 Then
+                    isSignatureCell = False
+                ElseIf fCellIdx = fTotalCells And fTotalCells >= 2 Then
+                    isSignatureCell = True
+                ElseIf InStr(1, cAscFooter, "T/M") > 0 Or InStr(1, cAscFooter, "TM.") > 0 Or InStr(1, cAscFooter, "K/T") > 0 Or InStr(1, cAscFooter, "KT.") > 0 Or InStr(1, cAscFooter, "T/L") > 0 Or InStr(1, cAscFooter, "TL.") > 0 Or InStr(1, cAscFooter, "BI THU") > 0 Or InStr(1, cAscFooter, "CHANH VAN PHONG") > 0 Or InStr(1, cAscFooter, "TRUONG BAN") > 0 Or InStr(1, cAscFooter, "CHU NHIEM") > 0 Then
                     isSignatureCell = True
                 End If
                 
                 If Not isSignatureCell Then
                     ' --- CỘT NƠI NHẬN ---
-                    ' 1. Tìm vị trí dòng liệt kê cuối cùng trong cột Nơi nhận
-                    Dim lastListItemIdx As Integer
-                    lastListItemIdx = 0
+                    Dim lastListItemIdx As Integer: lastListItemIdx = 0
                     Dim tempP As Paragraph
-                    Dim tCounter As Integer
-                    tCounter = 1
+                    Dim tCounter As Integer: tCounter = 1
                     For Each tempP In c.Range.Paragraphs
                         Dim tVal As String
-                        tVal = Trim(Replace(Replace(Replace(tempP.Range.Text, Chr(7), ""), vbCr, ""), vbLf, ""))
+                        tVal = CleanParaText(tempP.Range.Text)
                         If Len(tVal) > 0 Then
-                            Dim tValAsc As String
-                            tValAsc = ToAscii(tVal)
-                            If InStr(1, tValAsc, "NOI NHAN") = 0 Then
+                            If InStr(1, ToAscii(tVal), "NOI NHAN") = 0 Then
                                 lastListItemIdx = tCounter
                             End If
                         End If
                         tCounter = tCounter + 1
                     Next tempP
                     
-                    ' 2. Định dạng chuẩn từng dòng trong cột Nơi nhận
                     Dim pNoiNhan As Paragraph
-                    Dim pIndexNN As Integer
-                    pIndexNN = 1
+                    Dim pIndexNN As Integer: pIndexNN = 1
                     For Each pNoiNhan In c.Range.Paragraphs
                         Dim pTextNN As String
-                        pTextNN = Trim(Replace(Replace(pNoiNhan.Range.Text, vbCr, ""), Chr(7), ""))
+                        pTextNN = CleanParaText(pNoiNhan.Range.Text)
                         If Len(pTextNN) = 0 Then GoTo SkipNNLine
                         
                         On Error Resume Next
@@ -732,16 +595,11 @@ NextCellHeader:
                         pTextAsc = ToAscii(pTextNN)
                         
                         If InStr(1, pTextAsc, "NOI NHAN") > 0 Then
-                            ' Chữ "Nơi nhận:": Size 14, Gạch chân, Không đậm
                             pNoiNhan.Range.Font.Size = 14
                             pNoiNhan.Range.Font.Underline = wdUnderlineSingle
                             pNoiNhan.Range.Font.Bold = False
                             pNoiNhan.Range.Font.Italic = False
-                            pNoiNhan.Format.LeftIndent = 0
-                            pNoiNhan.Format.FirstLineIndent = 0
                         Else
-                            ' Các dòng liệt kê nơi nhận: Size 12, Không gạch chân, Không đậm
-                            pNoiNhan.Range.Font.Name = "Times New Roman"
                             pNoiNhan.Range.Font.Size = 12
                             pNoiNhan.Range.Font.Underline = wdUnderlineNone
                             pNoiNhan.Range.Font.Bold = False
@@ -749,7 +607,6 @@ NextCellHeader:
                             pNoiNhan.Format.LeftIndent = CentimetersToPoints(0.5)
                             pNoiNhan.Format.FirstLineIndent = CentimetersToPoints(-0.5)
                             
-                            ' Đảm bảo đầu dòng có gạch ngang "-" nếu thiếu
                             Dim firstChar As String
                             firstChar = Left(pTextNN, 1)
                             If firstChar <> "-" Then
@@ -760,81 +617,33 @@ NextCellHeader:
                                 End If
                             End If
                             
-                            ' Chuẩn hóa dấu câu cuối dòng an toàn tuyệt đối, triệt tiêu 100% lặp ".."
-                            On Error Resume Next
-                            Dim rngLineNN As Range
-                            Set rngLineNN = pNoiNhan.Range
-                            
-                            ' Thu hẹp bỏ qua các ký tự ngắt đoạn / ngắt ô
-                            Do While rngLineNN.End > rngLineNN.Start
-                                Dim cCodeNN As Long
-                                cCodeNN = AscW(Right(rngLineNN.Text, 1))
-                                If cCodeNN < 0 Then cCodeNN = cCodeNN + 65536
-                                If cCodeNN = 13 Or cCodeNN = 10 Or cCodeNN = 7 Then
-                                    rngLineNN.End = rngLineNN.End - 1
-                                Else
-                                    Exit Do
-                                End If
-                            Loop
-                            
-                            ' Ghi nhận vị trí cuối chuỗi hiển thị
-                            Dim rngEndPosNN As Long
-                            rngEndPosNN = rngLineNN.End
-                            
-                            ' Thu hẹp tiếp bỏ qua mọi dấu chấm, chấm phẩy, phẩy, khoảng trắng ở đuôi
-                            Do While rngLineNN.End > rngLineNN.Start
-                                Dim endChCodeNN As Long
-                                endChCodeNN = AscW(Right(rngLineNN.Text, 1))
-                                If endChCodeNN < 0 Then endChCodeNN = endChCodeNN + 65536
-                                If endChCodeNN = 32 Or endChCodeNN = 160 Or endChCodeNN = 9 Or endChCodeNN = 46 Or endChCodeNN = 59 Or endChCodeNN = 44 Then
-                                    rngLineNN.End = rngLineNN.End - 1
-                                Else
-                                    Exit Do
-                                End If
-                            Loop
-                            
-                            ' Vùng dấu ở đuôi
-                            Dim rngTailNN As Range
-                            Set rngTailNN = doc.Range(rngLineNN.End, rngEndPosNN)
-                            
-                            If pIndexNN = lastListItemIdx Then
-                                rngTailNN.Text = "."
-                            Else
-                                rngTailNN.Text = ";"
-                            End If
-                            On Error GoTo 0
+                            Call NormalizeLineEndingPunctuation(doc, pNoiNhan, (pIndexNN = lastListItemIdx))
                         End If
 SkipNNLine:
                         pIndexNN = pIndexNN + 1
                     Next pNoiNhan
                 Else
-                    ' --- CỘT CHỮ KÝ: TỰ ĐỘNG ĐẢM BẢO ĐÚNG 4 DÒNG ENTER ĐỂ KÝ TÊN ---
+                    ' --- CỘT CHỮ KÝ ---
                     On Error Resume Next
-                    Dim textIndices(1 To 20) As Integer
-                    Dim textCount As Integer
-                    textCount = 0
+                    Dim textIndices(1 To 30) As Integer
+                    Dim textCount As Integer: textCount = 0
                     
                     Dim pScan As Paragraph
-                    Dim scanIdx As Integer
-                    scanIdx = 1
+                    Dim scanIdx As Integer: scanIdx = 1
                     For Each pScan In c.Range.Paragraphs
-                        Dim chkText As String
-                        chkText = Trim(Replace(Replace(Replace(pScan.Range.Text, Chr(7), ""), vbCr, ""), vbLf, ""))
-                        If Len(chkText) > 0 Then
-                            textCount = textCount + 1
-                            textIndices(textCount) = scanIdx
+                        If Len(CleanParaText(pScan.Range.Text)) > 0 Then
+                            If textCount < 30 Then
+                                textCount = textCount + 1
+                                textIndices(textCount) = scanIdx
+                            End If
                         End If
                         scanIdx = scanIdx + 1
                     Next pScan
                     
                     If textCount >= 2 Then
-                        Dim sigIdx As Integer
-                        Dim prevTitleIdx As Integer
-                        Dim curEmpty As Integer
-                        
-                        sigIdx = textIndices(textCount)
-                        prevTitleIdx = textIndices(textCount - 1)
-                        curEmpty = sigIdx - prevTitleIdx - 1
+                        Dim sigIdx As Integer: sigIdx = textIndices(textCount)
+                        Dim prevTitleIdx As Integer: prevTitleIdx = textIndices(textCount - 1)
+                        Dim curEmpty As Integer: curEmpty = sigIdx - prevTitleIdx - 1
                         
                         If curEmpty < 4 Then
                             Dim nAdd As Integer
@@ -852,12 +661,9 @@ SkipNNLine:
                     End If
                     On Error GoTo 0
                     
-                    ' Định dạng chuẩn cho toàn bộ các dòng trong ô Chữ ký
+                    ' Định dạng chuẩn cho các dòng có chữ trong ô Chữ ký
                     Dim pSig As Paragraph
-                    Dim sigLineIdx As Integer
-                    Dim totalSigParas As Integer
-                    totalSigParas = c.Range.Paragraphs.Count
-                    sigLineIdx = 1
+                    Dim nonEmptyOrder As Integer: nonEmptyOrder = 0
                     
                     For Each pSig In c.Range.Paragraphs
                         On Error Resume Next
@@ -885,76 +691,65 @@ SkipNNLine:
                         pSig.Range.Font.Underline = wdUnderlineNone
                         
                         Dim curText As String
-                        curText = Trim(Replace(Replace(Replace(pSig.Range.Text, Chr(7), ""), vbCr, ""), vbLf, ""))
+                        curText = CleanParaText(pSig.Range.Text)
                         
                         If Len(curText) > 0 Then
+                            nonEmptyOrder = nonEmptyOrder + 1
                             Dim uText As String
-                            uText = UCase(curText)
-                            If InStr(1, uText, "T/M") > 0 Or InStr(1, uText, "TM.") > 0 Or InStr(1, uText, "TM ") > 0 Or _
-                               InStr(1, uText, "K/T") > 0 Or InStr(1, uText, "KT.") > 0 Or InStr(1, uText, "KT ") > 0 Or _
-                               InStr(1, uText, "T/L") > 0 Or InStr(1, uText, "TL.") > 0 Or InStr(1, uText, "TL ") > 0 Then
-                                ' Dòng thẩm quyền: Tự động sửa TM. -> T/M, KT. -> K/T
-                                Dim origAuth As String, fixAuth As String
-                                origAuth = Trim(Replace(Replace(pSig.Range.Text, vbCr, ""), Chr(7), ""))
-                                fixAuth = ChuanHoa_ThamQuyen(origAuth)
-                                If fixAuth <> origAuth And Len(fixAuth) > 0 Then
-                                    pSig.Range.Text = fixAuth & vbCr
-                                    pSig.Format.Alignment = wdAlignParagraphCenter
-                                    pSig.Range.Font.Name = "Times New Roman"
-                                    pSig.Range.Font.Size = 14
+                            uText = ToAscii(curText)
+                            
+                            If uText Like "T/M *" Or uText Like "TM.*" Or uText Like "TM *" Or _
+                               uText Like "K/T *" Or uText Like "KT.*" Or uText Like "KT *" Or _
+                               uText Like "T/L *" Or uText Like "TL.*" Or uText Like "TL *" Then
+                                Dim fixAuth As String
+                                fixAuth = ChuanHoa_ThamQuyen(curText)
+                                If fixAuth <> curText And Len(fixAuth) > 0 Then
+                                    Call SafeSetParagraphText(doc, pSig, fixAuth)
                                 End If
+                                pSig.Format.Alignment = wdAlignParagraphCenter
+                                pSig.Range.Font.Name = "Times New Roman"
+                                pSig.Range.Font.Size = 14
                                 pSig.Range.Case = wdUpperCase
                                 pSig.Range.Font.Bold = True
-                            ElseIf sigLineIdx = totalSigParas Then
-                                ' Dòng cuối cùng (Tên người ký): In đậm
+                            ElseIf nonEmptyOrder = textCount Then
+                                ' Dòng cuối cùng có chữ (Họ và tên người ký): In đậm
                                 pSig.Range.Font.Bold = True
-                            ElseIf sigLineIdx = 2 And textCount >= 3 Then
-                                ' Dòng chức danh thứ 2 (BÍ THƯ): In hoa, KHÔNG đậm
+                            ElseIf nonEmptyOrder = 2 And textCount >= 3 Then
+                                ' Chức vụ cụ thể dòng 2
                                 pSig.Range.Case = wdUpperCase
                                 pSig.Range.Font.Bold = False
-                            ElseIf sigLineIdx = 1 Then
-                                pSig.Range.Case = wdUpperCase
-                                pSig.Range.Font.Bold = True
                             Else
+                                pSig.Range.Case = wdUpperCase
                                 pSig.Range.Font.Bold = True
                             End If
                         Else
-                            ' 4 dòng Enter khoảng cách ký tên: Cỡ chữ 14, không đậm
                             pSig.Range.Font.Bold = False
                             pSig.Range.Font.Size = 14
                         End If
-                        
-                        sigLineIdx = sigLineIdx + 1
                     Next pSig
                 End If
+NextFooterCell:
+                fCellIdx = fCellIdx + 1
             Next c
         End If
+NextTableFooter:
     Next tbl
     
     '-----------------------------------------------------------------------
-    ' BƯỚC 4: ĐỊNH DẠNG ĐỒNG NHẤT 100% TOÀN BỘ THÂN VĂN BẢN
-    ' (MỌI ĐOẠN VĂN ĐỀU CÙNG 1 FORMAT DUY NHẤT: FIRST LINE 1.27CM, AFTER 6PT)
+    ' BƯỚC 4: ĐỊNH DẠNG THÂN VĂN BẢN THÔNG MINH (BẢO TOÀN IN ĐẬM CỤC BỘ)
     '-----------------------------------------------------------------------
     Dim p As Paragraph
     Dim s As String
-    Dim titleState As Integer
-    titleState = 0
+    Dim titleState As Integer: titleState = 0
+    Dim nonTableTextParaCount As Integer: nonTableTextParaCount = 0
     
     For Each p In doc.Paragraphs
-        ' Nếu nằm trong bảng thì bỏ qua
         If p.Range.Information(wdWithInTable) Then
             GoTo NextParagraphMain
         End If
         
-        ' Lấy text chuẩn và an toàn (Trim không tác dụng nếu còn vbCr ở cuối)
-        s = p.Range.Text
-        s = Replace(Replace(s, vbCr, ""), vbLf, "")
-        s = Replace(s, Chr(7), "")
-        s = Replace(s, Chr(11), "")
-        s = Replace(s, Chr(160), " ")
-        s = Trim(s)
+        s = CleanParaText(p.Range.Text)
         
-        ' 1. XÓA TẬN GỐC ĐƯỜNG VIỀN ẨN VÀ NỀN TRẮNG (Kể cả dòng trống)
         On Error Resume Next
         p.Borders.Enable = False
         p.Borders(wdBorderTop).LineStyle = wdLineStyleNone
@@ -966,7 +761,6 @@ SkipNNLine:
         On Error GoTo 0
         
         If Len(s) = 0 Then
-            ' Đảm bảo dòng trống (Enter) có chiều cao chuẩn 1 dòng để làm khoảng cách
             p.Range.Font.Size = 15
             p.Format.SpaceBefore = 0
             p.Format.SpaceAfter = 0
@@ -974,17 +768,16 @@ SkipNNLine:
             GoTo NextParagraphMain
         End If
         
-        ' 2. FONT CHỮ CHUẨN TIMES NEW ROMAN
+        nonTableTextParaCount = nonTableTextParaCount + 1
         p.Range.Font.Name = "Times New Roman"
         p.Range.Font.ColorIndex = wdBlack
         
-        ' --- QUẢN LÝ KHỐI TỰA ĐỀ (TÊN LOẠI VĂN BẢN, TRÍCH YẾU, DÒNG PHÂN CÁCH) ---
         Dim sAscPara As String
-        sAscPara = ToAscii(s)
+        sAscPara = Trim(ToAscii(s))
         
+        ' --- 1. QUẢN LÝ KHỐI TỰA ĐỀ (CHỈ XÉT TỐI ĐA 2 ĐOẠN ĐẦU NGOÀI BẢNG) ---
         If titleState = 0 Then
-            ' Chưa vào Title Block: Kiểm tra xem dòng hiện tại có phải Tên loại văn bản Đảng không
-            If IsPartyDocTitle(sAscPara) Then
+            If nonTableTextParaCount <= 2 And IsPartyDocTitle(sAscPara) Then
                 titleState = 1
                 With p.Format
                     .Alignment = wdAlignParagraphCenter
@@ -997,138 +790,76 @@ SkipNNLine:
                     .DisableLineHeightGrid = True
                 End With
                 p.Range.Case = wdUpperCase
-                p.Range.Font.Name = "Times New Roman"
                 p.Range.Font.Size = 16
                 p.Range.Font.Bold = True
                 p.Range.Font.Italic = False
                 p.Range.Font.Underline = wdUnderlineNone
                 GoTo NextParagraphMain
+            Else
+                ' Nếu ngay đoạn đầu ngoài bảng không phải Tên loại văn bản (VD: Công văn) -> Khóa ngay vào Thân bài!
+                titleState = 4
             End If
-            
         ElseIf titleState = 1 Then
-            ' Vừa qua Dòng 1 (Tên loại), đang xét dòng tiếp theo:
             If IsSeparatorLine(s) Then
                 titleState = 4
-                With p.Format
-                    .Alignment = wdAlignParagraphCenter
-                    .LeftIndent = 0
-                    .RightIndent = 0
-                    .FirstLineIndent = 0
-                    .SpaceBefore = 0
-                    .SpaceAfter = 14
-                    .LineSpacingRule = wdLineSpaceSingle
-                    .DisableLineHeightGrid = True
-                End With
-                p.Range.Font.Name = "Times New Roman"
-                p.Range.Font.Size = 15
-                p.Range.Font.Bold = True ' IN ĐẬM DÒNG PHÂN CÁCH
-                p.Range.Font.Italic = False
-                p.Range.Font.Underline = wdUnderlineNone
+                Call FormatCenteredSeparator(p)
                 GoTo NextParagraphMain
-                
             ElseIf IsBodyStart(s, sAscPara) Then
                 titleState = 4
-                ' Không GoTo, để trôi thẳng xuống format Thân bài bên dưới
-                
             Else
-                ' Dòng 1 Trích yếu nội dung (ví dụ: "Về lãnh đạo thực hiện nhiệm vụ công tác tháng 10 năm 2026")
                 titleState = 2
-                With p.Format
-                    .Alignment = wdAlignParagraphCenter
-                    .LeftIndent = 0
-                    .RightIndent = 0
-                    .FirstLineIndent = 0
-                    .SpaceBefore = 0
-                    .SpaceAfter = 6
-                    .LineSpacingRule = wdLineSpaceSingle
-                    .DisableLineHeightGrid = True
-                End With
-                p.Range.Font.Name = "Times New Roman"
-                p.Range.Font.Size = 15
-                p.Range.Font.Bold = True ' IN ĐẬM THEO ĐÚNG CHUẨN HD 36
-                p.Range.Font.Italic = False
-                p.Range.Font.Underline = wdUnderlineNone
+                Call FormatCenteredSummary(p)
                 GoTo NextParagraphMain
             End If
-            
         ElseIf titleState = 2 Then
-            ' Đã có Dòng 1 Trích yếu. Đang xét dòng tiếp theo:
             If IsSeparatorLine(s) Then
-                ' DÒNG PHÂN CÁCH (------ hoặc ---):
-                titleState = 4 ' Kết thúc khối tựa đề!
-                With p.Format
-                    .Alignment = wdAlignParagraphCenter
-                    .LeftIndent = 0
-                    .RightIndent = 0
-                    .FirstLineIndent = 0
-                    .SpaceBefore = 0
-                    .SpaceAfter = 14 ' Giãn dưới 14 pt phân cách với thân bài
-                    .LineSpacingRule = wdLineSpaceSingle
-                    .DisableLineHeightGrid = True
-                End With
-                p.Range.Font.Name = "Times New Roman"
-                p.Range.Font.Size = 15
-                p.Range.Font.Bold = True ' IN ĐẬM THEO YÊU CẦU NGƯỜI DÙNG!
-                p.Range.Font.Italic = False
-                p.Range.Font.Underline = wdUnderlineNone
+                titleState = 4
+                Call FormatCenteredSeparator(p)
                 GoTo NextParagraphMain
-                
-            ElseIf IsBodyStart(s, sAscPara) Or Len(s) > 60 Or Right(s, 1) = "." Or Right(s, 1) = ";" Or Right(s, 1) = ":" Or InStr(s, ". ") > 0 Then
-                ' VÔ TÌNH KHÔNG CÓ "------"! Nhận biết ngay đây là bắt đầu Thân bài!
-                titleState = 4 ' Thoát khối tựa đề NGAY LẬP TỨC!
-                ' Không GoTo, để trôi thẳng xuống format Thân bài (căn đều 2 bên, thụt lề 1.27cm, before/after 6pt)
-                
+            ElseIf IsBodyStart(s, sAscPara) Or Len(s) > 85 Or Right(s, 1) = "." Or Right(s, 1) = ";" Or Right(s, 1) = ":" Then
+                titleState = 4
             Else
-                ' Dòng 2 nối tiếp của Trích yếu (trích yếu dài phải ngắt 2 dòng)
-                titleState = 3 ' Đã có 2 dòng trích yếu, dòng tiếp theo BẮT BUỘC thoát sang thân bài hoặc separator!
-                With p.Format
-                    .Alignment = wdAlignParagraphCenter
-                    .LeftIndent = 0
-                    .RightIndent = 0
-                    .FirstLineIndent = 0
-                    .SpaceBefore = 0
-                    .SpaceAfter = 6
-                    .LineSpacingRule = wdLineSpaceSingle
-                    .DisableLineHeightGrid = True
-                End With
-                p.Range.Font.Name = "Times New Roman"
-                p.Range.Font.Size = 15
-                p.Range.Font.Bold = True
-                p.Range.Font.Italic = False
-                p.Range.Font.Underline = wdUnderlineNone
+                titleState = 3
+                Call FormatCenteredSummary(p)
                 GoTo NextParagraphMain
             End If
-            
         ElseIf titleState = 3 Then
-            ' Đã có 2 dòng Trích yếu. Dòng tiếp theo:
             If IsSeparatorLine(s) Then
-                titleState = 4 ' Dòng phân cách
-                With p.Format
-                    .Alignment = wdAlignParagraphCenter
-                    .LeftIndent = 0
-                    .RightIndent = 0
-                    .FirstLineIndent = 0
-                    .SpaceBefore = 0
-                    .SpaceAfter = 14
-                    .LineSpacingRule = wdLineSpaceSingle
-                    .DisableLineHeightGrid = True
-                End With
-                p.Range.Font.Name = "Times New Roman"
-                p.Range.Font.Size = 15
-                p.Range.Font.Bold = True ' IN ĐẬM THEO YÊU CẦU NGƯỜI DÙNG!
-                p.Range.Font.Italic = False
-                p.Range.Font.Underline = wdUnderlineNone
+                titleState = 4
+                Call FormatCenteredSeparator(p)
                 GoTo NextParagraphMain
             Else
-                ' Dù có hay không có dòng phân cách, dòng này CHẮC CHẮN là Thân bài!
                 titleState = 4
-                ' Không GoTo, để trôi thẳng xuống format Thân bài bên dưới!
             End If
         End If
         
-        ' --- XỬ LÝ KÍNH GỬI / NƠI NHẬN ---
+        ' --- 2. XỬ LÝ DÒNG ĐẶC BIỆT TRONG THÂN BÀI (QUYẾT ĐỊNH:, PHẦN I, CHƯƠNG I, DÒNG KẾT THÚC -----) ---
+        If sAscPara = "QUYET DINH:" Or sAscPara = "QUYET DINH :" Or _
+           sAscPara Like "PHAN I*" Or sAscPara Like "PHAN II*" Or sAscPara Like "PHAN III*" Or sAscPara Like "PHAN THU *" Or _
+           sAscPara Like "CHUONG I*" Or sAscPara Like "CHUONG II*" Or sAscPara Like "CHUONG III*" Then
+            With p.Format
+                .Alignment = wdAlignParagraphCenter
+                .LeftIndent = 0
+                .RightIndent = 0
+                .FirstLineIndent = 0
+                .SpaceBefore = 6
+                .SpaceAfter = 6
+                .LineSpacingRule = wdLineSpaceSingle
+                .DisableLineHeightGrid = True
+            End With
+            p.Range.Case = wdUpperCase
+            p.Range.Font.Size = 15
+            p.Range.Font.Bold = True
+            p.Range.Font.Italic = False
+            GoTo NextParagraphMain
+        ElseIf IsSeparatorLine(s) Then
+            Call FormatCenteredSeparator(p)
+            GoTo NextParagraphMain
+        End If
+        
+        ' --- 3. XỬ LÝ KÍNH GỬI / NƠI NHẬN NGOÀI BẢNG ---
         If Len(s) < 100 Then
-            If UCase(Left(s, 9)) Like "N?I NH?N:" Or UCase(Left(s, 8)) Like "K?NH G?I" Then
+            If sAscPara Like "NOI NHAN:*" Or sAscPara Like "KINH GUI:*" Then
                 With p.Format
                     .Alignment = wdAlignParagraphLeft
                     .LeftIndent = 0
@@ -1146,16 +877,10 @@ SkipNNLine:
             End If
         End If
         
-        ' 4. TOÀN BỘ NỘI DUNG VĂN BẢN (100% CÙNG 1 BỘ FORMAT ĐỒNG NHẤT DUY NHẤT)
-        ' - Cỡ chữ chuẩn thể thức: Times New Roman 15 pt
+        ' --- 4. ĐỊNH DẠNG ĐOẠN VĂN THÂN BÀI CHUẨN ---
         p.Range.Font.Name = "Times New Roman"
         p.Range.Font.Size = 15
         p.Range.Font.ColorIndex = wdBlack
-        ' - Căn lề: Justified (Đều 2 bên)
-        ' - Thụt đầu dòng: First line 1.27 cm
-        ' - Lề trái: 0 cm, Lề phải: 0 cm
-        ' - Giãn đoạn: Before 6 pt, After 6 pt
-        ' - Giãn dòng: Single
         With p.Format
             .Alignment = wdAlignParagraphJustify
             .LeftIndent = 0
@@ -1169,21 +894,26 @@ SkipNNLine:
             .DisableLineHeightGrid = True
         End With
         
-        ' Tự động nhận diện in đậm: CHỈ CÁC ĐẦU MỤC MỚI IN ĐẬM, CÒN LẠI NỘI DUNG LÀ CHỮ THƯỜNG (KHÔNG ĐẬM)
-        Dim isHeading As Boolean
-        isHeading = False
-        
-        If s Like "I.*" Or s Like "II.*" Or s Like "III.*" Or s Like "IV.*" Or s Like "V.*" Or s Like "VI.*" Or s Like "VII.*" Or s Like "VIII.*" Then
-            isHeading = True
+        ' Nhận diện đề mục lớn (I., II., 1., 1.1.) để In Đậm;
+        ' KHÔNG ép Bold = False lên các đoạn có in đậm cục bộ (như Điều 1., - Về kinh tế:)
+        If sAscPara Like "I.*" Or sAscPara Like "II.*" Or sAscPara Like "III.*" Or sAscPara Like "IV.*" Or sAscPara Like "V.*" Or sAscPara Like "VI.*" Or sAscPara Like "VII.*" Or sAscPara Like "VIII.*" Or _
+           sAscPara Like "I-*" Or sAscPara Like "II-*" Or sAscPara Like "III-*" Or sAscPara Like "IV-*" Or sAscPara Like "V-*" Then
             p.Range.Case = wdUpperCase
-        ElseIf (s Like "#. *" Or s Like "##. *" Or s Like "#.#. *" Or s Like "#.##. *" Or s Like "##.#. *" Or s Like "#.#.#*" Or Left(s, 1) = "*") And Len(s) < 160 Then
-            isHeading = True
-        End If
-        
-        If isHeading Then
             p.Range.Font.Bold = True
-        Else
-            ' Toàn bộ nội dung bình thường, gạch đầu dòng, dấu cộng, bullet -> CHỮ THƯỜNG (KHÔNG ĐẬM)
+        ElseIf (s Like "#. *" Or s Like "##. *" Or s Like "#.#. *" Or s Like "#.##. *" Or s Like "##.#. *" Or s Like "#.#.#*" Or Left(s, 1) = "*") And Len(s) < 160 And Right(s, 1) <> "." And Right(s, 1) <> ";" Then
+            p.Range.Font.Bold = True
+        ElseIf sAscPara Like "DIEU #.*" Or sAscPara Like "DIEU ##.*" Or sAscPara Like "DIEU #:*" Then
+            ' Chỉ in đậm chữ "Điều X." ở đầu câu, giữ nguyên phần sau
+            Dim colonOrDotPos As Long
+            colonOrDotPos = InStr(1, s, ".")
+            If colonOrDotPos = 0 Or colonOrDotPos > 10 Then colonOrDotPos = InStr(1, s, ":")
+            If colonOrDotPos > 0 And colonOrDotPos <= 10 Then
+                Dim rDieu As Range
+                Set rDieu = doc.Range(p.Range.Start, p.Range.Start + colonOrDotPos)
+                rDieu.Font.Bold = True
+            End If
+        ElseIf p.Range.Font.Bold = True Then
+            ' Chỉ tắt Bold nếu TOÀN BỘ đoạn văn xuôi đang bị bôi đậm cả đoạn
             p.Range.Font.Bold = False
         End If
         
@@ -1191,27 +921,29 @@ NextParagraphMain:
     Next p
     
     '-----------------------------------------------------------------------
-    ' BƯỚC 5: TỰ ĐỘNG CĂN VỪA CỬA SỔ TRANG IN (AUTOFIT WINDOW) CHO TOÀN BỘ BẢNG
+    ' BƯỚC 5: AUTOFIT WINDOW CHO TOÀN BỘ BẢNG
     '-----------------------------------------------------------------------
     Dim tblAll As Table
     For Each tblAll In doc.Tables
         On Error Resume Next
-        tblAll.AutoFitBehavior 2 ' wdAutoFitWindow = 2
+        tblAll.AutoFitBehavior 2
         tblAll.AllowAutoFit = True
         On Error GoTo 0
     Next tblAll
     
     Application.ScreenUpdating = True
     
-    ' RÀ SOÁT LOGIC THỂ THỨC DIỆN RỘNG SAU KHI CHUẨN HÓA
+    '-----------------------------------------------------------------------
+    ' BƯỚC 6: RÀ SOÁT LOGIC THỂ THỨC DIỆN RỘNG (10 NHÓM LOGIC CHÉO)
+    '-----------------------------------------------------------------------
     Dim strWarnings As String
     strWarnings = KiemTra_LogicTheThuc(doc)
     
     If Len(strWarnings) > 0 Then
         MsgBox "DA CHUAN HOA THE THUC THEO HD 05-HD/VPTW!" & vbCrLf & vbCrLf & _
-               "Luu y kiem tra cac diem sau truoc khi trinh ky:" & vbCrLf & _
+               "Phat hien cac diem bat hop ly ve LOGIC can kiem tra truoc khi trinh ky:" & vbCrLf & _
                strWarnings & vbCrLf & vbCrLf & _
-               "Created by VPDU xa Thanh Phu", vbExclamation, "Bao Cao Ra Soat The Thuc & Logic"
+               "Created by VPDU xa Thanh Phu", vbExclamation, "Bao Cao Ra Soat Logic & The Thuc"
     Else
         MsgBox "Da chuan hoa the thuc hoan hao theo Huong dan 05-HD/VPTW!" & vbCrLf & vbCrLf & _
                "Van ban dat chuan 100%, khong phat hien loi logic." & vbCrLf & vbCrLf & _
@@ -1219,19 +951,124 @@ NextParagraphMain:
     End If
 End Sub
 
-'-----------------------------------------------------------------------
-' HÀM TỰ ĐỘNG CHUẨN HÓA SỐ, KÝ HIỆU VĂN BẢN ĐẢNG
-' Sửa lỗi: "Số: 5/BC-ĐU" hoặc "Số: 05-BC/ĐU" -> "Số 05-BC/ĐU"
-'-----------------------------------------------------------------------
+'===========================================================================
+' CÁC HÀM PHỤ TRỢ AN TOÀN CHO BẢNG & ĐOẠN VĂN
+'===========================================================================
+Private Function CleanParaText(ByVal rawText As String) As String
+    Dim s As String
+    s = Replace(Replace(rawText, vbCr, ""), vbLf, "")
+    s = Replace(s, Chr(7), "")
+    s = Replace(s, Chr(11), "")
+    s = Replace(s, Chr(160), " ")
+    CleanParaText = Trim(s)
+End Function
+
+' Gán text an toàn vào Paragraph mà KHÔNG làm mất ký tự kết thúc ô bảng Chr(7)
+Private Sub SafeSetParagraphText(ByVal doc As Document, ByVal p As Paragraph, ByVal newText As String)
+    On Error Resume Next
+    Dim r As Range
+    Set r = p.Range
+    Do While r.End > r.Start
+        Dim code As Long
+        code = AscW(Right(r.Text, 1))
+        If code < 0 Then code = code + 65536
+        If code = 13 Or code = 10 Or code = 7 Then
+            r.End = r.End - 1
+        Else
+            Exit Do
+        End If
+    Loop
+    r.Text = newText
+    On Error GoTo 0
+End Sub
+
+Private Sub NormalizeLineEndingPunctuation(ByVal doc As Document, ByVal p As Paragraph, ByVal isLastLine As Boolean)
+    On Error Resume Next
+    Dim rngLine As Range
+    Set rngLine = p.Range
+    
+    Do While rngLine.End > rngLine.Start
+        Dim cCode As Long
+        cCode = AscW(Right(rngLine.Text, 1))
+        If cCode < 0 Then cCode = cCode + 65536
+        If cCode = 13 Or cCode = 10 Or cCode = 7 Then
+            rngLine.End = rngLine.End - 1
+        Else
+            Exit Do
+        End If
+    Loop
+    
+    Dim rngEndPos As Long
+    rngEndPos = rngLine.End
+    
+    Do While rngLine.End > rngLine.Start
+        Dim endChCode As Long
+        endChCode = AscW(Right(rngLine.Text, 1))
+        If endChCode < 0 Then endChCode = endChCode + 65536
+        If endChCode = 32 Or endChCode = 160 Or endChCode = 9 Or endChCode = 46 Or endChCode = 59 Or endChCode = 44 Then
+            rngLine.End = rngLine.End - 1
+        Else
+            Exit Do
+        End If
+    Loop
+    
+    Dim rngTail As Range
+    Set rngTail = doc.Range(rngLine.End, rngEndPos)
+    If isLastLine Then
+        rngTail.Text = "."
+    Else
+        rngTail.Text = ";"
+    End If
+    On Error GoTo 0
+End Sub
+
+Private Sub FormatCenteredSummary(ByVal p As Paragraph)
+    With p.Format
+        .Alignment = wdAlignParagraphCenter
+        .LeftIndent = 0
+        .RightIndent = 0
+        .FirstLineIndent = 0
+        .SpaceBefore = 0
+        .SpaceAfter = 6
+        .LineSpacingRule = wdLineSpaceSingle
+        .DisableLineHeightGrid = True
+    End With
+    p.Range.Font.Name = "Times New Roman"
+    p.Range.Font.Size = 15
+    p.Range.Font.Bold = True
+    p.Range.Font.Italic = False
+    p.Range.Font.Underline = wdUnderlineNone
+End Sub
+
+Private Sub FormatCenteredSeparator(ByVal p As Paragraph)
+    With p.Format
+        .Alignment = wdAlignParagraphCenter
+        .LeftIndent = 0
+        .RightIndent = 0
+        .FirstLineIndent = 0
+        .SpaceBefore = 0
+        .SpaceAfter = 14
+        .LineSpacingRule = wdLineSpaceSingle
+        .DisableLineHeightGrid = True
+    End With
+    p.Range.Font.Name = "Times New Roman"
+    p.Range.Font.Size = 15
+    p.Range.Font.Bold = True
+    p.Range.Font.Italic = False
+    p.Range.Font.Underline = wdUnderlineNone
+End Sub
+
+'===========================================================================
+' CÁC HÀM TỰ ĐỘNG SỬA SỐ KÝ HIỆU, NGÀY THÁNG, THẨM QUYỀN KÝ
+'===========================================================================
 Private Function ChuanHoa_SoKyHieu(ByVal sRaw As String) As String
     Dim s As String
     s = Trim(sRaw)
+    Dim sAsc As String
+    sAsc = ToAscii(s)
     
-    ' Bỏ dấu hai chấm sau chữ Số
-    If InStr(1, s, "Số:", vbTextCompare) = 1 Then
-        s = "Số " & Trim(Mid(s, 4))
-    ElseIf InStr(1, s, "So:", vbTextCompare) = 1 Then
-        s = "Số " & Trim(Mid(s, 4))
+    If Left(sAsc, 3) = "SO:" Then
+        s = "S" & ChrW(7889) & " " & Trim(Mid(s, 4))
     End If
     
     Dim p1 As Long
@@ -1239,7 +1076,9 @@ Private Function ChuanHoa_SoKyHieu(ByVal sRaw As String) As String
     If p1 > 0 Then
         Dim prefix As String, rest As String
         prefix = Left(s, p1)
-        rest = Trim(Mid(s, p1 + 1))
+        rest = Replace(Trim(Mid(s, p1 + 1)), " ", "")
+        rest = Replace(rest, ChrW(8211), "-")
+        rest = Replace(rest, ChrW(8212), "-")
         
         Dim dashPos As Long, slashPos As Long
         dashPos = InStr(1, rest, "-")
@@ -1247,13 +1086,12 @@ Private Function ChuanHoa_SoKyHieu(ByVal sRaw As String) As String
         
         Dim numPart As String, codePart As String, orgPart As String
         
-        ' Đảo dấu gạch kiểu UBND: Số 05/BC-ĐU -> Số 05-BC/ĐU
         If slashPos > 0 And dashPos > slashPos Then
             numPart = Trim(Left(rest, slashPos - 1))
             codePart = Trim(Mid(rest, slashPos + 1, dashPos - slashPos - 1))
             orgPart = Trim(Mid(rest, dashPos + 1))
             
-            If IsNumeric(numPart) And Val(numPart) < 10 And Len(numPart) = 1 Then
+            If IsNumeric(numPart) And Val(numPart) < 10 And Val(numPart) > 0 And Len(numPart) = 1 Then
                 numPart = "0" & numPart
             End If
             s = prefix & numPart & "-" & UCase(codePart) & "/" & UCase(orgPart)
@@ -1262,13 +1100,13 @@ Private Function ChuanHoa_SoKyHieu(ByVal sRaw As String) As String
             codePart = Trim(Mid(rest, dashPos + 1, slashPos - dashPos - 1))
             orgPart = Trim(Mid(rest, slashPos + 1))
             
-            If IsNumeric(numPart) And Val(numPart) < 10 And Len(numPart) = 1 Then
+            If IsNumeric(numPart) And Val(numPart) < 10 And Val(numPart) > 0 And Len(numPart) = 1 Then
                 numPart = "0" & numPart
             End If
             s = prefix & numPart & "-" & UCase(codePart) & "/" & UCase(orgPart)
         ElseIf dashPos > 0 Then
             numPart = Trim(Left(rest, dashPos - 1))
-            If IsNumeric(numPart) And Val(numPart) < 10 And Len(numPart) = 1 Then
+            If IsNumeric(numPart) And Val(numPart) < 10 And Val(numPart) > 0 And Len(numPart) = 1 Then
                 s = prefix & "0" & rest
             End If
         End If
@@ -1277,20 +1115,16 @@ Private Function ChuanHoa_SoKyHieu(ByVal sRaw As String) As String
     ChuanHoa_SoKyHieu = s
 End Function
 
-'-----------------------------------------------------------------------
-' HÀM TỰ ĐỘNG CHUẨN HÓA NGÀY THÁNG NĂM THEO HD 05-HD/VPTW
-' - Ngày < 10: thêm số 0 (ngày 05)
-' - Tháng 1, 2: thêm số 0 (tháng 01, tháng 02)
-' - Tháng 3 đến 9: bỏ số 0 thừa (tháng 03 -> tháng 3)
-'-----------------------------------------------------------------------
 Private Function ChuanHoa_NgayThang(ByVal sRaw As String) As String
     Dim s As String
     s = Trim(sRaw)
+    Dim sAsc As String
+    sAsc = ToAscii(s)
     
     Dim pNgay As Long, pThang As Long, pNam As Long
-    pNgay = InStr(1, s, "ngày", vbTextCompare)
-    pThang = InStr(1, s, "tháng", vbTextCompare)
-    pNam = InStr(1, s, "năm", vbTextCompare)
+    pNgay = InStr(1, sAsc, "NGAY")
+    pThang = InStr(1, sAsc, "THANG")
+    pNam = InStr(1, sAsc, "NAM")
     
     If pNgay > 0 And pThang > pNgay And pNam > pThang Then
         Dim locPart As String, dayPart As String, monthPart As String, yearPart As String
@@ -1299,13 +1133,11 @@ Private Function ChuanHoa_NgayThang(ByVal sRaw As String) As String
         monthPart = Trim(Mid(s, pThang + 5, pNam - (pThang + 5)))
         yearPart = Trim(Mid(s, pNam + 3))
         
-        ' Xử lý ngày < 10
         If IsNumeric(dayPart) Then
             Dim dVal As Long: dVal = Val(dayPart)
-            If dVal < 10 And Len(dayPart) = 1 Then dayPart = "0" & dayPart
+            If dVal < 10 And dVal > 0 And Len(dayPart) = 1 Then dayPart = "0" & dayPart
         End If
         
-        ' Xử lý tháng: 1, 2 có số 0; 3 đến 9 bỏ số 0
         If IsNumeric(monthPart) Then
             Dim mVal As Long: mVal = Val(monthPart)
             If (mVal = 1 Or mVal = 2) And Len(monthPart) = 1 Then
@@ -1315,194 +1147,370 @@ Private Function ChuanHoa_NgayThang(ByVal sRaw As String) As String
             End If
         End If
         
-        s = locPart & "ngày " & dayPart & " tháng " & monthPart & " năm " & yearPart
+        Dim strNgay As String, strThang As String, strNam As String
+        strNgay = "ng" & ChrW(224) & "y "
+        strThang = " th" & ChrW(225) & "ng "
+        strNam = " n" & ChrW(259) & "m "
+        
+        s = locPart & strNgay & dayPart & strThang & monthPart & strNam & yearPart
     End If
     
     ChuanHoa_NgayThang = s
 End Function
 
-'-----------------------------------------------------------------------
-' HÀM TỰ ĐỘNG CHUẨN HÓA THẨM QUYỀN KÝ VĂN BẢN ĐẢNG
-' Sửa lỗi: TM. -> T/M, KT. -> K/T, TL. -> T/L
-'-----------------------------------------------------------------------
 Private Function ChuanHoa_ThamQuyen(ByVal sRaw As String) As String
     Dim s As String
     s = Trim(sRaw)
     Dim sUp As String
-    sUp = UCase(s)
+    sUp = ToAscii(s)
     
-    If Left(sUp, 3) = "TM." Then
+    If Left(sUp, 3) = "TM." Or Left(sUp, 3) = "TM " Then
         s = "T/M " & Trim(Mid(s, 4))
-    ElseIf Left(sUp, 3) = "TM " Then
-        s = "T/M " & Trim(Mid(s, 4))
-    ElseIf Left(sUp, 3) = "KT." Then
+    ElseIf Left(sUp, 3) = "KT." Or Left(sUp, 3) = "KT " Then
         s = "K/T " & Trim(Mid(s, 4))
-    ElseIf Left(sUp, 3) = "KT " Then
-        s = "K/T " & Trim(Mid(s, 4))
-    ElseIf Left(sUp, 3) = "TL." Then
-        s = "T/L " & Trim(Mid(s, 4))
-    ElseIf Left(sUp, 3) = "TL " Then
+    ElseIf Left(sUp, 3) = "TL." Or Left(sUp, 3) = "TL " Then
         s = "T/L " & Trim(Mid(s, 4))
     End If
     
     ChuanHoa_ThamQuyen = s
 End Function
 
-'-----------------------------------------------------------------------
-' BỘ RÀ SOÁT DIỆN RỘNG: KIỂM TRA THỂ THỨC & 8 NHÓM LỖI LOGIC CHÉO
-'-----------------------------------------------------------------------
+'===========================================================================
+' BỘ RÀ SOÁT LOGIC & THỂ THỨC DIỆN RỘNG (10 NHÓM KIỂM TRA CHÉO)
+'===========================================================================
 Private Function KiemTra_LogicTheThuc(ByVal doc As Document) As String
-    Dim warnings As String
-    warnings = ""
-    Dim warnCount As Integer
-    warnCount = 0
+    Dim warnings As String: warnings = ""
+    Dim warnCount As Integer: warnCount = 0
     
     Dim docTextFull As String
     docTextFull = doc.Content.Text
+    Dim docAscFull As String
+    docAscFull = ToAscii(docTextFull)
     
-    ' 1. KIỂM TRA DẤU CHẤM BA CHẤM CHƯA ĐIỀN THÔNG TIN
+    ' ----------------------------------------------------------------------
+    ' 1. KIỂM TRA DẤU BA CHẤM (...) CHƯA ĐIỀN THÔNG TIN
+    ' ----------------------------------------------------------------------
     If InStr(1, docTextFull, "...") > 0 Or InStr(1, docTextFull, ChrW(8230)) > 0 Then
         warnCount = warnCount + 1
-        warnings = warnings & vbCrLf & warnCount & ". Phát hiện còn dấu '...' (chỗ trống nháp chưa điền thông tin trước khi ký)."
+        warnings = warnings & vbCrLf & warnCount & ". [Dữ liệu trống] Phát hiện còn dấu '...' chưa điền đầy đủ thông tin."
     End If
     
-    ' 2. BÓC TÁCH MÃ VĂN BẢN (BC, KH, QD, CV...) VÀ TÊN LOẠI VĂN BẢN
+    ' ----------------------------------------------------------------------
+    ' 2. BÓC TÁCH CẤU TRÚC TỪ HEADER, BODY VÀ FOOTER
+    ' ----------------------------------------------------------------------
+    Dim foundSoRaw As String: foundSoRaw = ""
+    Dim foundNumVal As String: foundNumVal = ""
     Dim foundCode As String: foundCode = ""
+    Dim foundDateRaw As String: foundDateRaw = ""
     Dim foundTitle As String: foundTitle = ""
+    Dim foundSuperiorOrgan As String: foundSuperiorOrgan = ""
     Dim foundIssuingOrgan As String: foundIssuingOrgan = ""
-    Dim foundSignAuth As String: foundSignAuth = ""
+    Dim hasVvSummary As Boolean: hasVvSummary = False
+    Dim hasKinhGui As Boolean: hasKinhGui = False
+    Dim hasQuyetDinhVerb As Boolean: hasQuyetDinhVerb = False
+    Dim hasNoiNhan As Boolean: hasNoiNhan = False
     Dim hasLuuVT As Boolean: hasLuuVT = False
+    Dim hasNhuDieu As Boolean: hasNhuDieu = False
+    Dim foundSignAuth As String: foundSignAuth = ""
+    Dim foundSignRole As String: foundSignRole = ""
     
-    Dim pCount As Long
-    pCount = doc.Paragraphs.Count
+    ' A. Bóc tách chính xác từ Bảng Header (Bảng 1) nếu có
+    If doc.Tables.Count >= 1 Then
+        Dim tblH As Table
+        Set tblH = doc.Tables(1)
+        Dim tHAsc As String
+        tHAsc = ToAscii(tblH.Range.Text)
+        
+        If InStr(1, tHAsc, "DANG CONG SAN") > 0 Or InStr(1, tHAsc, "DANG UY") > 0 Or InStr(1, tHAsc, "DANG BO") > 0 Then
+            Dim cH As Cell
+            Dim orgLinesCount As Integer: orgLinesCount = 0
+            For Each cH In tblH.Range.Cells
+                Dim pH As Paragraph
+                For Each pH In cH.Range.Paragraphs
+                    Dim sH As String: sH = CleanParaText(pH.Range.Text)
+                    Dim sHAsc As String: sHAsc = Trim(ToAscii(sH))
+                    If Len(sHAsc) > 0 Then
+                        If sHAsc Like "SO *" Or sHAsc Like "SO:*" Or sHAsc Like "SO-*" Then
+                            foundSoRaw = sHAsc
+                        ElseIf InStr(1, sHAsc, "NGAY") > 0 And InStr(1, sHAsc, "THANG") > 0 Then
+                            foundDateRaw = sHAsc
+                        ElseIf sHAsc Like "V/V*" Or sHAsc Like "VE VIEC*" Then
+                            hasVvSummary = True
+                        ElseIf InStr(1, sHAsc, "DANG CONG SAN") = 0 And Not IsSeparatorLine(sH) And sHAsc <> "*" And sHAsc <> "***" Then
+                            orgLinesCount = orgLinesCount + 1
+                            If orgLinesCount = 1 Then
+                                foundIssuingOrgan = sHAsc
+                            ElseIf orgLinesCount = 2 Then
+                                foundSuperiorOrgan = foundIssuingOrgan
+                                foundIssuingOrgan = sHAsc
+                            End If
+                        End If
+                    End If
+                Next pH
+            Next cH
+        End If
+    End If
     
-    Dim i As Long
-    For i = 1 To pCount
+    ' B. Duyệt toàn bộ các đoạn văn để kiểm tra cấu trúc Body, Đề mục, Điều khoản & Chữ ký
+    Dim pCount As Long: pCount = doc.Paragraphs.Count
+    Dim nonTblIdx As Long: nonTblIdx = 0
+    
+    Dim romanOrder(1 To 10) As String
+    romanOrder(1) = "I": romanOrder(2) = "II": romanOrder(3) = "III": romanOrder(4) = "IV": romanOrder(5) = "V"
+    romanOrder(6) = "VI": romanOrder(7) = "VII": romanOrder(8) = "VIII": romanOrder(9) = "IX": romanOrder(10) = "X"
+    
+    Dim nextExpectedRoman As Integer: nextExpectedRoman = 1
+    Dim nextExpectedArabic As Integer: nextExpectedArabic = 1
+    Dim nextExpectedDieu As Integer: nextExpectedDieu = 1
+    Dim totalDieuCount As Integer: totalDieuCount = 0
+    
+    Dim idx As Long
+    For idx = 1 To pCount
+        Dim pItem As Paragraph
+        Set pItem = doc.Paragraphs(idx)
         Dim pText As String
-        pText = Trim(Replace(Replace(Replace(doc.Paragraphs(i).Range.Text, vbCr, ""), vbLf, ""), Chr(7), ""))
-        If Len(pText) > 0 Then
-            Dim pAsc As String
-            pAsc = ToAscii(pText)
+        pText = CleanParaText(pItem.Range.Text)
+        If Len(pText) = 0 Then GoTo NextParaCheck
+        
+        Dim pAsc As String
+        pAsc = Trim(ToAscii(pText))
+        Dim inTbl As Boolean
+        inTbl = pItem.Range.Information(wdWithInTable)
+        
+        If Not inTbl Then nonTblIdx = nonTblIdx + 1
+        
+        ' Nhận diện Tên loại văn bản (chỉ ở 3 đoạn đầu ngoài bảng)
+        If Not inTbl And nonTblIdx <= 3 And Len(foundTitle) = 0 Then
+            If IsPartyDocTitle(pAsc) Then
+                foundTitle = pAsc
+                GoTo NextParaCheck
+            End If
+        End If
+        
+        ' Nhận diện Kính gửi & V/v
+        If InStr(1, pAsc, "KINH GUI") > 0 Then hasKinhGui = True
+        If pAsc Like "V/V*" Or pAsc Like "VE VIEC*" Then hasVvSummary = True
+        If pAsc = "QUYET DINH:" Or pAsc = "QUYET DINH :" Then hasQuyetDinhVerb = True
+        
+        ' Nhận diện Nơi nhận & Chữ ký ở nửa cuối văn bản
+        If idx >= pCount - 30 Or inTbl Then
+            If InStr(1, pAsc, "NOI NHAN") > 0 Then hasNoiNhan = True
+            If InStr(1, pAsc, "LUU VT") > 0 Or InStr(1, pAsc, "LUU: VT") > 0 Or InStr(1, pAsc, "LUU VAN THU") > 0 Or InStr(1, pAsc, "LUU: VAN THU") > 0 Then
+                hasLuuVT = True
+            End If
+            If InStr(1, pAsc, "NHU DIEU") > 0 Then hasNhuDieu = True
             
-            ' Tìm số ký hiệu
-            If Len(foundCode) = 0 And (pAsc Like "SO *" Or pAsc Like "SO:*") Then
-                Dim dashIdx As Long, slashIdx As Long
-                dashIdx = InStr(1, pText, "-")
-                slashIdx = InStr(1, pText, "/")
-                If dashIdx > 0 And slashIdx > dashIdx Then
-                    foundCode = UCase(Trim(Mid(pText, dashIdx + 1, slashIdx - dashIdx - 1)))
+            If pAsc Like "T/M *" Or pAsc Like "TM.*" Or pAsc Like "K/T *" Or pAsc Like "KT.*" Or pAsc Like "T/L *" Or pAsc Like "TL.*" Then
+                foundSignAuth = pAsc
+            ElseIf pAsc = "BI THU" Or pAsc Like "PHO BI THU*" Or pAsc = "CHANH VAN PHONG" Or pAsc = "PHO CHANH VAN PHONG" Or pAsc Like "TRUONG BAN*" Or pAsc Like "CHU NHIEM*" Then
+                foundSignRole = pAsc
+            End If
+        End If
+        
+        ' Kiểm tra thứ tự Đề mục và Điều khoản (chỉ xét ngoài bảng)
+        If Not inTbl Then
+            ' Kiểm tra Điều 1., Điều 2., Điều 3.
+            If pAsc Like "DIEU #.*" Or pAsc Like "DIEU ##.*" Or pAsc Like "DIEU #:*" Then
+                Dim dieuNumStr As String
+                dieuNumStr = Trim(Mid(pAsc, 5, 3))
+                dieuNumStr = Replace(Replace(dieuNumStr, ".", ""), ":", "")
+                If IsNumeric(dieuNumStr) Then
+                    Dim actualDieu As Integer: actualDieu = Val(dieuNumStr)
+                    totalDieuCount = totalDieuCount + 1
+                    If actualDieu <> nextExpectedDieu Then
+                        warnCount = warnCount + 1
+                        warnings = warnings & vbCrLf & warnCount & ". [Thứ tự Điều] Nhảy cóc hoặc sai thứ tự: Kỳ vọng 'Điều " & nextExpectedDieu & "' nhưng gặp 'Điều " & actualDieu & "'."
+                    End If
+                    nextExpectedDieu = actualDieu + 1
                 End If
             End If
             
-            ' Tìm tên cơ quan ban hành
-            If Len(foundIssuingOrgan) = 0 And i <= 10 Then
-                If InStr(1, pAsc, "DANG UY") > 0 Or InStr(1, pAsc, "CHI BO") > 0 Or InStr(1, pAsc, "BAN CHAP HANH") > 0 Or InStr(1, pAsc, "VAN PHONG") > 0 Then
-                    foundIssuingOrgan = pAsc
+            ' Kiểm tra mục La Mã: I., II., III. hoặc I-, II-
+            Dim rIdx As Integer
+            Dim matchedRoman As Boolean: matchedRoman = False
+            For rIdx = 1 To 10
+                If pAsc Like romanOrder(rIdx) & ". *" Or pAsc Like romanOrder(rIdx) & "- *" Or pAsc Like romanOrder(rIdx) & " - *" Then
+                    matchedRoman = True
+                    If rIdx <> nextExpectedRoman Then
+                        warnCount = warnCount + 1
+                        warnings = warnings & vbCrLf & warnCount & ". [Đề mục La Mã] Nhảy cóc thứ tự: Kỳ vọng mục '" & romanOrder(nextExpectedRoman) & "' nhưng gặp mục '" & romanOrder(rIdx) & "'."
+                    End If
+                    nextExpectedRoman = rIdx + 1
+                    nextExpectedArabic = 1 ' Reset bộ đếm mục 1., 2. khi sang mục La Mã mới
+                    Exit For
                 End If
-            End If
+            Next rIdx
             
-            ' Tìm tên loại văn bản (dòng chữ hoa ở giữa bài)
-            If Len(foundTitle) = 0 And i <= 25 Then
-                If IsPartyDocTitle(pAsc) Then
-                    foundTitle = pAsc
-                End If
-            End If
-            
-            ' Tìm thẩm quyền ký
-            If i >= pCount - 25 Then
-                If InStr(1, pAsc, "T/M") > 0 Or InStr(1, pAsc, "TM.") > 0 Or InStr(1, pAsc, "K/T") > 0 Or InStr(1, pAsc, "KT.") > 0 Then
-                    foundSignAuth = pAsc
-                End If
-                If InStr(1, pAsc, "LUU VT") > 0 Or InStr(1, pAsc, "LUU: VT") > 0 Or InStr(1, pAsc, "LUU VAN THU") > 0 Then
-                    hasLuuVT = True
+            ' Kiểm tra mục số Ả Rập: 1., 2., 3. (Không xét 1.1.)
+            If Not matchedRoman Then
+                If (pAsc Like "#. *" Or pAsc Like "##. *") And Not (pAsc Like "#.#*") Then
+                    Dim dotPos As Long: dotPos = InStr(1, pAsc, ".")
+                    If dotPos > 1 Then
+                        Dim arabStr As String: arabStr = Left(pAsc, dotPos - 1)
+                        If IsNumeric(arabStr) Then
+                            Dim actualArab As Integer: actualArab = Val(arabStr)
+                            If actualArab <> nextExpectedArabic Then
+                                warnCount = warnCount + 1
+                                warnings = warnings & vbCrLf & warnCount & ". [Đề mục Số] Nhảy cóc thứ tự khoản: Kỳ vọng mục '" & nextExpectedArabic & ".' nhưng gặp '" & actualArab & ".' (" & Left(pText, 35) & "...)."
+                            End If
+                            nextExpectedArabic = actualArab + 1
+                        End If
+                    End If
                 End If
             End If
         End If
-    Next i
+NextParaCheck:
+    Next idx
     
-    ' 3. ĐỐI CHIẾU MÂU THUẪN MÃ KÝ HIỆU VÀ TIÊU ĐỀ
-    If Len(foundCode) > 0 And Len(foundTitle) > 0 Then
+    ' ----------------------------------------------------------------------
+    ' 3. KIỂM TRA SỐ, KÝ HIỆU VĂN BẢN (THIẾU SỐ / SAI KÝ HIỆU)
+    ' ----------------------------------------------------------------------
+    If Len(foundSoRaw) > 0 Then
+        Dim dashIdx As Long, slashIdx As Long
+        dashIdx = InStr(1, foundSoRaw, "-")
+        slashIdx = InStr(1, foundSoRaw, "/")
+        If dashIdx > 0 And slashIdx > dashIdx Then
+            foundNumVal = Trim(Mid(foundSoRaw, 3, dashIdx - 3))
+            foundCode = Trim(Mid(foundSoRaw, dashIdx + 1, slashIdx - dashIdx - 1))
+        End If
+        
+        If Len(foundNumVal) = 0 Or Not IsNumeric(foundNumVal) Then
+            warnCount = warnCount + 1
+            warnings = warnings & vbCrLf & warnCount & ". [Số văn bản] Chưa điền số thứ tự văn bản ('" & foundSoRaw & "')."
+        End If
+    Else
+        warnCount = warnCount + 1
+        warnings = warnings & vbCrLf & warnCount & ". [Số văn bản] Không tìm thấy dòng Số, ký hiệu văn bản ở phần Tiêu đề."
+    End If
+    
+    ' ----------------------------------------------------------------------
+    ' 4. KIỂM TRA NGÀY THÁNG NĂM HỢP LỆ (LỊCH THỰC TẾ)
+    ' ----------------------------------------------------------------------
+    If Len(foundDateRaw) > 0 Then
+        Dim pNg As Long, pTh As Long, pNm As Long
+        pNg = InStr(1, foundDateRaw, "NGAY")
+        pTh = InStr(1, foundDateRaw, "THANG")
+        pNm = InStr(1, foundDateRaw, "NAM")
+        If pNg > 0 And pTh > pNg And pNm > pTh Then
+            Dim sDay As String, sMonth As String, sYear As String
+            sDay = Trim(Mid(foundDateRaw, pNg + 4, pTh - (pNg + 4)))
+            sMonth = Trim(Mid(foundDateRaw, pTh + 5, pNm - (pTh + 5)))
+            sYear = Trim(Left(Trim(Mid(foundDateRaw, pNm + 3)), 4))
+            
+            If Not IsNumeric(sDay) Or Not IsNumeric(sMonth) Then
+                warnCount = warnCount + 1
+                warnings = warnings & vbCrLf & warnCount & ". [Ngày tháng] Chưa điền đầy đủ ngày hoặc tháng ban hành ('" & foundDateRaw & "')."
+            Else
+                Dim dInt As Integer, mInt As Integer, yInt As Integer
+                dInt = Val(sDay): mInt = Val(sMonth): yInt = Val(sYear)
+                If mInt < 1 Or mInt > 12 Or dInt < 1 Or dInt > 31 Then
+                    warnCount = warnCount + 1
+                    warnings = warnings & vbCrLf & warnCount & ". [Ngày tháng] Ngày tháng không hợp lệ: ngày " & dInt & " tháng " & mInt & "."
+                ElseIf (mInt = 4 Or mInt = 6 Or mInt = 9 Or mInt = 11) And dInt > 30 Then
+                    warnCount = warnCount + 1
+                    warnings = warnings & vbCrLf & warnCount & ". [Ngày tháng] Tháng " & mInt & " chỉ có tối đa 30 ngày (đang ghi ngày " & dInt & ")."
+                ElseIf mInt = 2 And dInt > 29 Then
+                    warnCount = warnCount + 1
+                    warnings = warnings & vbCrLf & warnCount & ". [Ngày tháng] Tháng 02 không thể có ngày " & dInt & "."
+                End If
+            End If
+        End If
+    End If
+    
+    ' ----------------------------------------------------------------------
+    ' 5. ĐỐI CHIẾU CHÉO [MÃ KÝ HIỆU] <-> [TÊN LOẠI VĂN BẢN] <-> [CẤU TRÚC]
+    ' ----------------------------------------------------------------------
+    If Len(foundCode) > 0 Then
         Dim expectTitle As String: expectTitle = ""
         Select Case foundCode
             Case "BC": expectTitle = "BAO CAO"
             Case "KH": expectTitle = "KE HOACH"
-            Case "QD", "QĐ": expectTitle = "QUYET DINH"
+            Case "QD": expectTitle = "QUYET DINH"
             Case "NQ": expectTitle = "NGHI QUYET"
             Case "CT": expectTitle = "CHI THI"
             Case "KL": expectTitle = "KET LUAN"
             Case "TB": expectTitle = "THONG BAO"
             Case "TTR": expectTitle = "TO TRINH"
             Case "CTR": expectTitle = "CHUONG TRINH"
+            Case "HD": expectTitle = "HUONG DAN"
+            Case "QC": expectTitle = "QUY CHE"
+            Case "QYD": expectTitle = "QUY DINH"
             Case "CV": expectTitle = "CONG VAN"
         End Select
         
-        If Len(expectTitle) > 0 Then
-            If expectTitle = "CONG VAN" And InStr(1, foundTitle, "CONG VAN") > 0 Then
+        If expectTitle = "CONG VAN" Then
+            If Len(foundTitle) > 0 Then
                 warnCount = warnCount + 1
-                warnings = warnings & vbCrLf & warnCount & ". Công văn của Đảng không trình bày dòng tên loại 'CÔNG VĂN' độc lập ở giữa."
-            ElseIf expectTitle <> "CONG VAN" And InStr(1, foundTitle, expectTitle) = 0 Then
+                warnings = warnings & vbCrLf & warnCount & ". [Loại văn bản] Ký hiệu là Công văn ('CV') nhưng lại có tiêu đề '" & foundTitle & "' ở giữa bài."
+            End If
+            If Not hasVvSummary Or Not hasKinhGui Then
                 warnCount = warnCount + 1
-                warnings = warnings & vbCrLf & warnCount & ". Mâu thuẫn thể thức: Ký hiệu là '" & foundCode & "' nhưng tiêu đề lại ghi là '" & foundTitle & "'."
+                warnings = warnings & vbCrLf & warnCount & ". [Cấu trúc Công văn] Công văn đang thiếu dòng trích yếu 'V/v...' hoặc thiếu phần 'Kính gửi:'."
+            End If
+        ElseIf Len(expectTitle) > 0 Then
+            If Len(foundTitle) = 0 Then
+                warnCount = warnCount + 1
+                warnings = warnings & vbCrLf & warnCount & ". [Thiếu tiêu đề] Ký hiệu văn bản là '" & foundCode & "' nhưng thiếu dòng tên loại văn bản ('" & expectTitle & "') ở giữa trang."
+            ElseIf foundTitle <> expectTitle Then
+                warnCount = warnCount + 1
+                warnings = warnings & vbCrLf & warnCount & ". [Mâu thuẫn loại VB] Ký hiệu ghi là '" & foundCode & "' nhưng tiêu đề văn bản lại ghi là '" & foundTitle & "'."
             End If
         End If
     End If
     
-    ' 4. KIỂM TRA THẨM QUYỀN KÝ CỦA CƠ QUAN TẬP THỂ
+    ' ----------------------------------------------------------------------
+    ' 6. KIỂM TRA LOGIC CẤU TRÚC VĂN BẢN "QUYẾT ĐỊNH"
+    ' ----------------------------------------------------------------------
+    If foundTitle = "QUYET DINH" Or foundCode = "QD" Then
+        If Not hasQuyetDinhVerb Or totalDieuCount = 0 Then
+            warnCount = warnCount + 1
+            warnings = warnings & vbCrLf & warnCount & ". [Cấu trúc Quyết định] Văn bản Quyết định nhưng thiếu dòng 'QUYẾT ĐỊNH:' hoặc thiếu các 'Điều 1.', 'Điều 2.'."
+        End If
+        If totalDieuCount > 0 And hasNoiNhan And Not hasNhuDieu Then
+            warnCount = warnCount + 1
+            warnings = warnings & vbCrLf & warnCount & ". [Logic Nơi nhận] Văn bản Quyết định có Điều khoản thi hành nhưng phần Nơi nhận thiếu dòng '- Như Điều ...;'."
+        End If
+    End If
+    
+    ' ----------------------------------------------------------------------
+    ' 7. ĐỐI CHIẾU CHÉO [CƠ QUAN BAN HÀNH (Ô 1)] <-> [THẨM QUYỀN KÝ (CHÂN TRANG)]
+    ' ----------------------------------------------------------------------
     If Len(foundIssuingOrgan) > 0 Then
-        If InStr(1, foundIssuingOrgan, "DANG UY") > 0 Or InStr(1, foundIssuingOrgan, "BAN CHAP HANH") > 0 Or InStr(1, foundIssuingOrgan, "BAN THUONG VU") > 0 Then
-            If Len(foundSignAuth) = 0 Then
-                warnCount = warnCount + 1
-                warnings = warnings & vbCrLf & warnCount & ". Cơ quan ban hành là tập thể (" & Trim(foundIssuingOrgan) & ") nhưng chữ ký thiếu thẩm quyền 'T/M'."
-            End If
+        Dim isExecutive As Boolean: isExecutive = False
+        If foundIssuingOrgan Like "VAN PHONG*" Or foundIssuingOrgan Like "BAN TO CHUC*" Or _
+           foundIssuingOrgan Like "BAN TUYEN GIAO*" Or foundIssuingOrgan Like "BAN XAY DUNG*" Or _
+           foundIssuingOrgan Like "BAN DAN VAN*" Or foundIssuingOrgan Like "TRUNG TAM*" Then
+            isExecutive = True
+        End If
+        
+        Dim isCollective As Boolean: isCollective = False
+        If Not isExecutive And (InStr(1, foundIssuingOrgan, "DANG UY") > 0 Or InStr(1, foundIssuingOrgan, "BAN CHAP HANH") > 0 Or InStr(1, foundIssuingOrgan, "BAN THUONG VU") > 0 Or InStr(1, foundIssuingOrgan, "UY BAN KIEM TRA") > 0 Or InStr(1, foundIssuingOrgan, "CHI BO") > 0) Then
+            isCollective = True
+        End If
+        
+        If isCollective And Not (foundSignAuth Like "T/M *" Or foundSignAuth Like "TM.*") Then
+            warnCount = warnCount + 1
+            warnings = warnings & vbCrLf & warnCount & ". [Thẩm quyền ký] Cơ quan ban hành ở Ô 1 là tập thể ('" & foundIssuingOrgan & "') nhưng chữ ký thiếu thẩm quyền 'T/M ...'."
+        ElseIf isExecutive And (foundSignAuth Like "T/M *" Or foundSignAuth Like "TM.*") Then
+            warnCount = warnCount + 1
+            warnings = warnings & vbCrLf & warnCount & ". [Thẩm quyền ký] Cơ quan ban hành ở Ô 1 là '" & foundIssuingOrgan & "' (chế độ thủ trưởng) nên không được ký 'T/M' (" & foundSignAuth & ")."
         End If
     End If
     
-    ' 5. KIỂM TRA DÒNG LƯU VĂN THƯ TRONG NƠI NHẬN
-    If InStr(1, ToAscii(docTextFull), "NOI NHAN") > 0 And Not hasLuuVT Then
+    ' ----------------------------------------------------------------------
+    ' 8. KIỂM TRA DÒNG LƯU VĂN THƯ TRONG NƠI NHẬN
+    ' ----------------------------------------------------------------------
+    If hasNoiNhan And Not hasLuuVT Then
         warnCount = warnCount + 1
-        warnings = warnings & vbCrLf & warnCount & ". Phần 'Nơi nhận' thiếu dòng '- Lưu: VT...' theo quy định văn thư Đảng."
+        warnings = warnings & vbCrLf & warnCount & ". [Nơi nhận] Phần 'Nơi nhận:' đang thiếu dòng '- Lưu: VT...' ở cuối."
     End If
-    
-    ' 6. KIỂM TRA TÍNH LIÊN TỤC CỦA ĐỀ MỤC LA MÃ (I, II, III...)
-    Dim romanOrder(1 To 10) As String
-    romanOrder(1) = "I."
-    romanOrder(2) = "II."
-    romanOrder(3) = "III."
-    romanOrder(4) = "IV."
-    romanOrder(5) = "V."
-    romanOrder(6) = "VI."
-    romanOrder(7) = "VII."
-    romanOrder(8) = "VIII."
-    romanOrder(9) = "IX."
-    romanOrder(10) = "X."
-    
-    Dim nextExpectedRoman As Integer: nextExpectedRoman = 1
-    For i = 1 To pCount
-        Dim pLine As String
-        pLine = Trim(Replace(Replace(doc.Paragraphs(i).Range.Text, vbCr, ""), vbLf, ""))
-        Dim pAscLine As String
-        pAscLine = ToAscii(pLine)
-        
-        Dim rIdx As Integer
-        For rIdx = 1 To 10
-            If pAscLine Like romanOrder(rIdx) & "*" Or pAscLine Like Replace(romanOrder(rIdx), ".", "-") & "*" Then
-                If rIdx > nextExpectedRoman Then
-                    warnCount = warnCount + 1
-                    warnings = warnings & vbCrLf & warnCount & ". Đề mục La Mã bị nhảy cóc: Kỳ vọng mục " & romanOrder(nextExpectedRoman) & " nhưng gặp " & romanOrder(rIdx) & "."
-                End If
-                nextExpectedRoman = rIdx + 1
-                Exit For
-            End If
-        Next rIdx
-    Next i
     
     KiemTra_LogicTheThuc = warnings
 End Function
 
-'-----------------------------------------------------------------------
-' HAM CHUYEN DOI CHU CO DAU THANH ASCII KHONG DAU (DUNG MA SO ASCW)
-' KHONG CHUA KY TU TIENG VIET TRONG MA NGUON NEN KHONG BAO GIO BI LOI FONT VBE
-'-----------------------------------------------------------------------
+'===========================================================================
+' HÀM CHUYỂN ĐỔI ASCII AN TOÀN (ĐÃ BỔ SUNG GIỮ DẤU '.', ':', ';')
+'===========================================================================
 Private Function ToAscii(ByVal s As String) As String
     Dim res As String
     res = ""
@@ -1529,10 +1537,14 @@ Private Function ToAscii(ByVal s As String) As String
                 res = res & "U"
             Case 221, 253, 7922 To 7929 ' Y, y
                 res = res & "Y"
+            Case 8211, 8212 ' En-dash, Em-dash -> '-'
+                res = res & "-"
             Case Else
-                If w >= 97 And w <= 122 Then ' a-z
-                    res = res & Chr(w - 32) ' Chuyen thanh A-Z
-                ElseIf (w >= 65 And w <= 90) Or (w >= 48 And w <= 57) Or w = 32 Or w = 42 Or w = 45 Or w = 47 Then
+                If w >= 97 And w <= 122 Then
+                    res = res & Chr(w - 32)
+                ElseIf (w >= 65 And w <= 90) Or (w >= 48 And w <= 57) Or _
+                       w = 32 Or w = 42 Or w = 45 Or w = 46 Or w = 47 Or w = 58 Or w = 59 Then
+                    ' 42=*, 45=-, 46=., 47=/, 58=:, 59=;
                     res = res & Chr(w)
                 Else
                     res = res & " "
@@ -1543,77 +1555,32 @@ Private Function ToAscii(ByVal s As String) As String
 End Function
 
 '-----------------------------------------------------------------------
-' HAM KIEM TRA TEN LOAI VAN BAN DANG (HD 36-HD/VPTW & QD 66-QD/TW)
+' HÀM NHẬN DIỆN TÊN LOẠI VĂN BẢN ĐẢNG (KHỚP CHÍNH XÁC, KHÔNG BẮT NHẦM THÂN BÀI)
 '-----------------------------------------------------------------------
 Private Function IsPartyDocTitle(ByVal sAsc As String) As Boolean
     Dim t As String
     t = Trim(sAsc)
-    If Len(t) = 0 Or Len(t) > 70 Then
+    If Len(t) = 0 Or Len(t) > 35 Then
         IsPartyDocTitle = False
         Exit Function
     End If
     
-    Dim match As Boolean
-    match = False
-    
-    If t = "NGHI QUYET" Or t Like "NGHI QUYET*" Then
-        match = True
-    ElseIf t = "QUYET DINH" Or t Like "QUYET DINH*" Then
-        match = True
-    ElseIf t = "CHI THI" Or t Like "CHI THI*" Then
-        match = True
-    ElseIf t = "KET LUAN" Or t Like "KET LUAN*" Then
-        match = True
-    ElseIf t = "QUY CHE" Or t Like "QUY CHE*" Then
-        match = True
-    ElseIf t = "QUY DINH" Or t Like "QUY DINH*" Then
-        match = True
-    ElseIf t = "THONG TRI" Or t Like "THONG TRI*" Then
-        match = True
-    ElseIf t = "HUONG DAN" Or t Like "HUONG DAN*" Then
-        match = True
-    ElseIf t = "THONG BAO" Or t Like "THONG BAO*" Then
-        match = True
-    ElseIf t = "KE HOACH" Or t Like "KE HOACH*" Then
-        match = True
-    ElseIf t = "CHUONG TRINH" Or t Like "CHUONG TRINH*" Then
-        match = True
-    ElseIf t = "BAO CAO" Or t Like "BAO CAO*" Then
-        match = True
-    ElseIf t = "BIEN BAN" Or t Like "BIEN BAN*" Then
-        match = True
-    ElseIf t = "TO TRINH" Or t Like "TO TRINH*" Then
-        match = True
-    ElseIf t = "CONG DIEN" Or t Like "CONG DIEN*" Then
-        match = True
-    ElseIf t = "DE AN" Or t Like "DE AN*" Then
-        match = True
-    ElseIf t = "PHUONG AN" Or t Like "PHUONG AN*" Then
-        match = True
-    ElseIf t = "DU THAO" Or t Like "DU THAO*" Then
-        match = True
-    ElseIf t = "GIAY MOI" Or t Like "GIAY MOI*" Then
-        match = True
-    ElseIf t = "GIAY GIOI THIEU" Or t Like "GIAY GIOI THIEU*" Then
-        match = True
-    ElseIf t = "BAN CAM KET" Or t Like "BAN CAM KET*" Then
-        match = True
-    ElseIf t = "BAN DANG KY" Or t Like "BAN DANG KY*" Then
-        match = True
-    ElseIf t = "DIEU LE" Or t Like "DIEU LE*" Then
-        match = True
-    End If
-    
-    IsPartyDocTitle = match
+    Select Case t
+        Case "NGHI QUYET", "QUYET DINH", "CHI THI", "KET LUAN", "QUY CHE", _
+             "QUY DINH", "THONG TRI", "HUONG DAN", "THONG BAO", "KE HOACH", _
+             "CHUONG TRINH", "BAO CAO", "BIEN BAN", "TO TRINH", "CONG DIEN", _
+             "DE AN", "PHUONG AN", "GIAY MOI", "GIAY GIOI THIEU", _
+             "BAN CAM KET", "BAN DANG KY", "DIEU LE", "CHUONG TRINH HANH DONG"
+            IsPartyDocTitle = True
+        Case Else
+            IsPartyDocTitle = False
+    End Select
 End Function
 
-'-----------------------------------------------------------------------
-' HAM KIEM TRA DONG PHAN CACH (---, ------, – – –, ___, * * *)
-'-----------------------------------------------------------------------
 Private Function IsSeparatorLine(ByVal rawText As String) As Boolean
     Dim cleanStr As String
     cleanStr = Trim(Replace(Replace(Replace(rawText, vbCr, ""), vbLf, ""), " ", ""))
-    cleanStr = Replace(cleanStr, Chr(160), "") ' Non-breaking space
+    cleanStr = Replace(cleanStr, Chr(160), "")
     cleanStr = Replace(cleanStr, vbTab, "")
     
     If Len(cleanStr) < 2 Or Len(cleanStr) > 40 Then
@@ -1621,15 +1588,12 @@ Private Function IsSeparatorLine(ByVal rawText As String) As Boolean
         Exit Function
     End If
     
-    Dim isAllDash As Boolean
-    isAllDash = True
+    Dim isAllDash As Boolean: isAllDash = True
     Dim i As Long
     For i = 1 To Len(cleanStr)
         Dim wCode As Long
         wCode = AscW(Mid(cleanStr, i, 1))
         If wCode < 0 Then wCode = wCode + 65536
-        ' 45 = Hyphen (-), 95 = Underscore (_), 42 = Asterisk (*)
-        ' 8211 = En dash (–), 8212 = Em dash (—), 8213 = Horizontal bar
         If wCode <> 45 And wCode <> 95 And wCode <> 42 And _
            wCode <> 8211 And wCode <> 8212 And wCode <> 8213 Then
             isAllDash = False
@@ -1640,25 +1604,17 @@ Private Function IsSeparatorLine(ByVal rawText As String) As Boolean
     IsSeparatorLine = isAllDash
 End Function
 
-'-----------------------------------------------------------------------
-' HAM KIEM TRA BAT DAU THAN VAN BAN (IS BODY START)
-' DUNG DE NHAN BIET DIEM KET THUC KHOI TUA DE NGAY CA KHI THIEU "------"
-'-----------------------------------------------------------------------
 Private Function IsBodyStart(ByVal rawText As String, ByVal sAsc As String) As Boolean
-    Dim tAsc As String
-    tAsc = Trim(sAsc)
-    Dim tRaw As String
-    tRaw = Trim(rawText)
+    Dim tAsc As String: tAsc = Trim(sAsc)
+    Dim tRaw As String: tRaw = Trim(rawText)
     
     If Len(tAsc) = 0 Then
         IsBodyStart = False
         Exit Function
     End If
     
-    Dim match As Boolean
-    match = False
+    Dim match As Boolean: match = False
     
-    ' 1. Cac tu khoa phap ly / tham quyen mo dau than bai
     If tAsc Like "CAN CU*" Or tAsc Like "THUC HIEN*" Or tAsc Like "DE THUC HIEN*" Or _
        tAsc Like "XET DE NGHI*" Or tAsc Like "THEO DE NGHI*" Or _
        tAsc Like "BAN THUONG VU*" Or tAsc Like "BAN CHAP HANH*" Or _
@@ -1669,50 +1625,23 @@ Private Function IsBodyStart(ByVal rawText As String, ByVal sAsc As String) As B
         match = True
     End If
     
-    ' 2. Cac dau muc phan cap (La Ma, Chuong, Muc, Dieu, Khoan, So thu tu)
     If Not match Then
         If tAsc Like "I.*" Or tAsc Like "II.*" Or tAsc Like "III.*" Or _
-           tAsc Like "IV.*" Or tAsc Like "V.*" Or tAsc Like "VI.*" Or _
-           tAsc Like "VII.*" Or tAsc Like "VIII.*" Or tAsc Like "IX.*" Or tAsc Like "X.*" Then
-            match = True
-        ElseIf tAsc Like "PHAN I*" Or tAsc Like "PHAN 1*" Or tAsc Like "PHAN THU*" Or _
-               tAsc Like "MUC I*" Or tAsc Like "MUC 1*" Or _
-               tAsc Like "CHUONG I*" Or tAsc Like "CHUONG 1*" Or _
-               tAsc Like "DIEU 1*" Or tAsc Like "DIEU 2*" Or tAsc Like "DIEU *" Or _
-               tAsc Like "KHOAN 1*" Or tAsc Like "KHOAN 2*" Then
-            match = True
-        ElseIf tAsc Like "1.*" Or tAsc Like "2.*" Or tAsc Like "3.*" Or _
-               tAsc Like "4.*" Or tAsc Like "5.*" Or tAsc Like "6.*" Or _
-               tAsc Like "7.*" Or tAsc Like "8.*" Or tAsc Like "9.*" Or _
-               tAsc Like "1/*" Or tAsc Like "2/*" Or tAsc Like "3/*" Then
-            match = True
-        ElseIf tAsc Like "A.*" Or tAsc Like "B.*" Or tAsc Like "C.*" Or tAsc Like "D.*" Then
+           tAsc Like "I-*" Or tAsc Like "II-*" Or tAsc Like "III-*" Or _
+           tAsc Like "PHAN I*" Or tAsc Like "PHAN 1*" Or tAsc Like "PHAN THU*" Or _
+           tAsc Like "MUC I*" Or tAsc Like "MUC 1*" Or _
+           tAsc Like "CHUONG I*" Or tAsc Like "CHUONG 1*" Or _
+           tAsc Like "DIEU 1*" Or tAsc Like "DIEU 2*" Or tAsc Like "DIEU *" Or _
+           tAsc Like "1.*" Or tAsc Like "2.*" Or tAsc Like "A.*" Or tAsc Like "B.*" Then
             match = True
         ElseIf Left(tRaw, 1) = "-" Or Left(tRaw, 1) = "+" Or Left(tRaw, 1) = "*" Then
             match = True
         End If
     End If
     
-    ' 3. Tu khoa thoi gian / tinh hinh / nhiem vu mo dau
     If Not match Then
-        If tAsc Like "TRONG THANG*" Or tAsc Like "TRONG QUY*" Or tAsc Like "TRONG NAM*" Or _
-           tAsc Like "NAM 20*" Or tAsc Like "THANG 1*" Or tAsc Like "THANG 2*" Or _
-           tAsc Like "THANG 3*" Or tAsc Like "THANG 4*" Or tAsc Like "THANG 5*" Or _
-           tAsc Like "THANG 6*" Or tAsc Like "THANG 7*" Or tAsc Like "THANG 8*" Or _
-           tAsc Like "THANG 9*" Or tAsc Like "THANG 10*" Or tAsc Like "THANG 11*" Or tAsc Like "THANG 12*" Or _
-           tAsc Like "TINH HINH*" Or tAsc Like "DANH GIA*" Or _
-           tAsc Like "MUC DICH*" Or tAsc Like "NOI DUNG*" Then
-            match = True
-        End If
-    End If
-    
-    ' 4. Dau hieu cu phap (ket thuc bang ';' hoac ':' hoac do dai > 60)
-    If Not match Then
-        Dim lastCh As String
-        lastCh = Right(tRaw, 1)
-        If lastCh = ";" Or lastCh = ":" Then
-            match = True
-        ElseIf Len(tRaw) > 60 Then
+        Dim lastCh As String: lastCh = Right(tRaw, 1)
+        If lastCh = ";" Or lastCh = ":" Or Len(tRaw) > 85 Then
             match = True
         End If
     End If
